@@ -28,9 +28,12 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ success: true, statusCode: 200, data: { items: result.items, pagination: result.pagination } });
 }
 
-export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
+export async function DELETE(request: NextRequest) {
+  const id = request.nextUrl.searchParams.get("id");
   const locationId = request.nextUrl.searchParams.get("locationId");
+  if (!id) {
+    return NextResponse.json({ success: false, error: "id is required" }, { status: 400 });
+  }
   if (!locationId) {
     return NextResponse.json({ success: false, error: "locationId is required" }, { status: 400 });
   }

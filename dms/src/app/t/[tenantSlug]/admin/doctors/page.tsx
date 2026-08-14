@@ -39,6 +39,7 @@ import {
   Eye,
   EyeOff,
 } from "lucide-react";
+import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
 
 const SPECIALIZATIONS = [
   "General Dentistry",
@@ -131,19 +132,25 @@ const textareaClass =
   "w-full rounded-xl border border-slate-900/10 bg-white px-3.5 py-2.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-[#7da3b3]";
 
 
+function formatDob(val?: string | null): string {
+  if (!val) return "";
+  if (val.includes("T")) return val.split("T")[0];
+  return val;
+}
+
 function doctorToForm(doc: Doctor): FormState {
   return {
     name: doc.name,
     email: doc.email,
     phone: doc.phone,
     specialization: doc.specialization,
-    experience: doc.experience,
-    qualification: doc.qualification,
+    experience: doc.experience ?? "",
+    qualification: doc.qualification ?? "",
     imageUrl: doc.imageUrl ?? "",
     age: doc.age ?? "",
     bloodGroup: doc.bloodGroup ?? BLOOD_GROUPS[0],
     gender: doc.gender ?? GENDERS[0],
-    dob: doc.dob ?? "",
+    dob: formatDob(doc.dob || doc.dateOfBirth),
     address: doc.address ?? "",
     education: (doc.education ?? []).join("\n"),
     experienceNotes: (doc.experienceNotes ?? []).join("\n"),
@@ -185,6 +192,9 @@ export default function DoctorsPage() {
   const [modalMode, setModalMode] = useState<"add" | "edit">("add");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
@@ -219,7 +229,7 @@ export default function DoctorsPage() {
           id: d.id,
           name: d.name,
           specialization: SPECIALIZATION_MAP_FRONTEND[d.specialization] || "General Dentistry",
-          experience: String(d.yearsOfExperience ?? 0),
+          experience: d.yearsOfExperience !== undefined && d.yearsOfExperience !== null ? String(d.yearsOfExperience) : "0",
           email: d.email,
           phone: d.phone || "",
           qualification: d.qualification || "BDS",
@@ -230,7 +240,7 @@ export default function DoctorsPage() {
           age: d.age || "30",
           bloodGroup: d.bloodGroup || "O+",
           gender: d.gender || "Female",
-          dob: pickField(d, "dateOfBirth", "dob", "date_of_birth"),
+          dob: formatDob(pickField(d, "dateOfBirth", "dob", "date_of_birth")),
           address: pickField(d, "address", "location", "doctorAddress", "residenceAddress"),
           education: d.education ? [d.education] : [],
           experienceNotes: d.bio ? [d.bio] : [],
@@ -290,16 +300,20 @@ export default function DoctorsPage() {
       const res = await axios.get(`/api/doctor/${doc.id}`);
       if (res.data?.success && res.data.data?.doctor) {
         const fullDoc = res.data.data.doctor;
-        const mergedDoc = {
+        const mergedDoc: Doctor = {
           ...doc,
-          phone: fullDoc.phone || "",
-          qualification: fullDoc.qualification || "",
-          education: fullDoc.education ? fullDoc.education.split("\n") : [],
-          experienceNotes: fullDoc.bio ? fullDoc.bio.split("\n") : [],
+          name: fullDoc.name || doc.name,
+          email: fullDoc.email || doc.email,
+          phone: fullDoc.phone || doc.phone || "",
+          qualification: fullDoc.qualification || doc.qualification || "",
+          experience: fullDoc.yearsOfExperience !== undefined && fullDoc.yearsOfExperience !== null ? String(fullDoc.yearsOfExperience) : doc.experience,
+          imageUrl: fullDoc.photoUrl || doc.imageUrl,
+          education: fullDoc.education ? (typeof fullDoc.education === "string" ? fullDoc.education.split("\n") : fullDoc.education) : (doc.education || []),
+          experienceNotes: fullDoc.bio ? (typeof fullDoc.bio === "string" ? fullDoc.bio.split("\n") : fullDoc.bio) : (doc.experienceNotes || []),
           age: fullDoc.age || doc.age,
           bloodGroup: fullDoc.bloodGroup || doc.bloodGroup,
           gender: fullDoc.gender || doc.gender,
-          dob: pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth") || doc.dob,
+          dob: formatDob(pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth")) || doc.dob,
           address: pickField(fullDoc, "address", "location", "doctorAddress", "residenceAddress") || doc.address,
         };
         setSelectedDoctor((prev) => (prev && prev.id === doc.id ? mergedDoc : prev));
@@ -316,6 +330,8 @@ export default function DoctorsPage() {
     setModalMode("add");
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setImageFile(null);
+    setImagePreview(null);
     setShowPassword(false);
     setShowConfirmPassword(false);
     setSubmitError(null);
@@ -326,6 +342,8 @@ export default function DoctorsPage() {
     setModalMode("edit");
     setEditingId(doc.id);
     setForm(doctorToForm(doc));
+    setImageFile(null);
+    setImagePreview(doc.imageUrl || null);
     setShowPassword(false);
     setShowConfirmPassword(false);
     setSubmitError(null);
@@ -335,19 +353,24 @@ export default function DoctorsPage() {
       const res = await axios.get(`/api/doctor/${doc.id}`);
       if (res.data?.success && res.data.data?.doctor) {
         const fullDoc = res.data.data.doctor;
-        const mergedDoc = {
+        const mergedDoc: Doctor = {
           ...doc,
-          phone: fullDoc.phone || "",
-          qualification: fullDoc.qualification || "",
-          education: fullDoc.education ? fullDoc.education.split("\n") : [],
-          experienceNotes: fullDoc.bio ? fullDoc.bio.split("\n") : [],
+          name: fullDoc.name || doc.name,
+          email: fullDoc.email || doc.email,
+          phone: fullDoc.phone || doc.phone || "",
+          qualification: fullDoc.qualification || doc.qualification || "",
+          experience: fullDoc.yearsOfExperience !== undefined && fullDoc.yearsOfExperience !== null ? String(fullDoc.yearsOfExperience) : doc.experience,
+          imageUrl: fullDoc.photoUrl || doc.imageUrl,
+          education: fullDoc.education ? (typeof fullDoc.education === "string" ? fullDoc.education.split("\n") : fullDoc.education) : (doc.education || []),
+          experienceNotes: fullDoc.bio ? (typeof fullDoc.bio === "string" ? fullDoc.bio.split("\n") : fullDoc.bio) : (doc.experienceNotes || []),
           age: fullDoc.age || doc.age,
           bloodGroup: fullDoc.bloodGroup || doc.bloodGroup,
           gender: fullDoc.gender || doc.gender,
-          dob: pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth") || doc.dob,
+          dob: formatDob(pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth")) || doc.dob,
           address: pickField(fullDoc, "address", "location", "doctorAddress", "residenceAddress") || doc.address,
         };
         setForm(doctorToForm(mergedDoc));
+        setImagePreview(mergedDoc.imageUrl || null);
         setDoctors((prev) => prev.map((d) => (d.id === doc.id ? mergedDoc : d)));
       }
     } catch (err) {
@@ -422,8 +445,9 @@ export default function DoctorsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    setImageFile(file);
     const url = URL.createObjectURL(file);
-    update("imageUrl", url);
+    setImagePreview(url);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -443,6 +467,29 @@ export default function DoctorsPage() {
 
     setSubmitting(true);
 
+    let uploadedPhotoKey: string | undefined = undefined;
+    if (imageFile) {
+      setUploadingImage(true);
+      try {
+        if (uploadConfig.cloudinary.cloudName && uploadConfig.cloudinary.uploadPreset) {
+          const formData = new FormData();
+          formData.append("file", imageFile);
+          formData.append("upload_preset", uploadConfig.cloudinary.uploadPreset);
+          formData.append("folder", "dental/doctors");
+
+          const cloudinaryRes = await axios.post(
+            `https://api.cloudinary.com/v1_1/${uploadConfig.cloudinary.cloudName}/image/upload`,
+            formData
+          );
+          uploadedPhotoKey = cloudinaryRes.data.public_id;
+        }
+      } catch (uploadErr) {
+        console.error("Cloudinary upload failed:", uploadErr);
+      } finally {
+        setUploadingImage(false);
+      }
+    }
+
     const { education, experienceNotes, ...rest } = form;
     const educationList = linesToArray(education);
     const experienceNotesList = linesToArray(experienceNotes);
@@ -459,7 +506,7 @@ export default function DoctorsPage() {
           yearsOfExperience: parseInt(form.experience, 10) || 0,
         };
 
-        if (form.imageUrl) payload.photoKey = form.imageUrl;
+        if (uploadedPhotoKey) payload.photoKey = uploadedPhotoKey;
         if (educationList.length > 0) payload.education = educationList.join("\n");
         if (experienceNotesList.length > 0) payload.bio = experienceNotesList.join("\n");
         if (form.dob) payload.dateOfBirth = form.dob;
@@ -470,12 +517,15 @@ export default function DoctorsPage() {
         const res = await axios.patch(`/api/doctor/${editingId}`, payload);
 
         if (res.data?.success) {
+          const updatedDocPhoto = res.data.data?.doctor?.photoUrl || (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : undefined);
           setDoctors((prev) =>
             prev.map((d) =>
               d.id === editingId
                 ? {
                   ...d,
                   ...rest,
+                  experience: form.experience,
+                  imageUrl: updatedDocPhoto || d.imageUrl,
                   education: educationList,
                   experienceNotes: experienceNotesList,
                 }
@@ -484,7 +534,14 @@ export default function DoctorsPage() {
           );
           setSelectedDoctor((prev) =>
             prev && prev.id === editingId
-              ? { ...prev, ...rest, education: educationList, experienceNotes: experienceNotesList }
+              ? {
+                  ...prev,
+                  ...rest,
+                  experience: form.experience,
+                  imageUrl: updatedDocPhoto || prev.imageUrl,
+                  education: educationList,
+                  experienceNotes: experienceNotesList,
+                }
               : prev
           );
         }
@@ -507,7 +564,7 @@ export default function DoctorsPage() {
 
 
         if (form.phone.trim()) payload.phone = form.phone.trim();
-        if (form.imageUrl) payload.photoKey = form.imageUrl;
+        if (uploadedPhotoKey) payload.photoKey = uploadedPhotoKey;
         if (form.qualification) payload.qualification = form.qualification;
         if (educationList.length > 0) payload.education = educationList.join("\n");
         if (experienceNotesList.length > 0) payload.bio = experienceNotesList.join("\n");
@@ -531,7 +588,7 @@ export default function DoctorsPage() {
               specialization: form.specialization,
               experience: form.experience,
               qualification: form.qualification,
-              imageUrl: newDoc.photoUrl || undefined,
+              imageUrl: newDoc.photoUrl || (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : undefined),
               age: form.age,
               bloodGroup: form.bloodGroup,
               gender: form.gender,
@@ -547,6 +604,8 @@ export default function DoctorsPage() {
       }
 
       setForm(EMPTY_FORM);
+      setImageFile(null);
+      setImagePreview(null);
       setEditingId(null);
       setSubmitError(null);
       setModalOpen(false);
@@ -851,9 +910,9 @@ export default function DoctorsPage() {
 
                 <div className="flex items-center gap-4">
                   <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-100 text-slate-400">
-                    {form.imageUrl ? (
+                    {(imagePreview || form.imageUrl) ? (
                       <Image
-                        src={form.imageUrl}
+                        src={imagePreview || form.imageUrl}
                         alt="Doctor preview"
                         fill
                         unoptimized
@@ -990,15 +1049,15 @@ export default function DoctorsPage() {
                   <label className="block">
                     <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                       <BriefcaseMedical className="h-3.5 w-3.5" strokeWidth={2} />
-                      Experience
+                      Years of experience
                     </span>
                     <input
                       required
                       type="number"
                       min={0}
+                      placeholder="e.g. 5"
                       value={form.experience}
                       onChange={(e) => update("experience", e.target.value)}
-
                       className={inputClass}
                     />
                   </label>
@@ -1113,13 +1172,13 @@ export default function DoctorsPage() {
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                     <BriefcaseMedical className="h-3.5 w-3.5" strokeWidth={2} />
-                    Experience
+                    Experience notes / Bio
                   </span>
                   <textarea
                     rows={3}
+                    placeholder="One entry per line (e.g. Senior Dental Surgeon at ABC Clinic)"
                     value={form.experienceNotes}
                     onChange={(e) => update("experienceNotes", e.target.value)}
-
                     className={textareaClass}
                   />
                 </label>
@@ -1133,10 +1192,10 @@ export default function DoctorsPage() {
                 <div className="flex items-center gap-3 pt-2">
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || uploadingImage}
                     className="rounded-full bg-[#7da3b3] px-6 py-2.5 text-[0.9rem] font-medium text-white transition-colors hover:bg-[#345263] disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    {submitting ? "Saving..." : modalMode === "edit" ? "Save Changes" : "Add Doctor"}
+                    {submitting || uploadingImage ? "Saving..." : modalMode === "edit" ? "Save Changes" : "Add Doctor"}
                   </button>
                   <button
                     type="button"

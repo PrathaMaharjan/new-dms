@@ -1,4 +1,4 @@
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, sql, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { users, userLocationRoles, locations, organizations } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
@@ -17,7 +17,7 @@ async function findOwnedStaff(staffId: string, orgId: string) {
   const rows = await db
     .select({ id: users.id })
     .from(users)
-    .where(and(eq(users.id, staffId), eq(users.orgId, orgId)))
+    .where(and(eq(users.id, staffId), eq(users.orgId, orgId), isNull(users.deletedAt)))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -153,8 +153,12 @@ export type GetStaffListResult =
     const offset = Math.max(options?.offset ?? 0, 0);
 
     const whereClause = locationId
-      ? and(eq(userLocationRoles.locationId, locationId), eq(users.orgId, session.orgId))
-      : eq(users.orgId, session.orgId);
+      ? and(
+          eq(userLocationRoles.locationId, locationId),
+          eq(users.orgId, session.orgId),
+          isNull(users.deletedAt)
+        )
+      : and(eq(users.orgId, session.orgId), isNull(users.deletedAt));
 
     const [results, countResult] = await Promise.all([
       db
@@ -344,7 +348,7 @@ export async function getStaffById(staffId: string): Promise<GetStaffResult> {
       })
       .from(users)
       .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
-      .where(and(eq(users.id, staffId), eq(users.orgId, session.orgId)))
+      .where(and(eq(users.id, staffId), eq(users.orgId, session.orgId), isNull(users.deletedAt)))
       .limit(1);
 
     if (!result) {

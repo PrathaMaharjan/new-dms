@@ -5,13 +5,11 @@ import Image from "next/image";
 import axios from "axios";
 import {
   Search,
-  Plus,
   Filter,
-  SquarePen,
-  Trash2,
   ChevronLeft,
   ChevronRight,
   Users,
+  User,
   UserPlus,
   CalendarCheck,
   Mail,
@@ -25,10 +23,7 @@ import {
   ClipboardList,
   AlertCircle,
   Pill,
-  ImagePlus,
-  User,
   Loader2,
-  FileText,
   Wallet,
   CheckCircle2,
 } from "lucide-react";
@@ -87,52 +82,6 @@ const AVATAR_COLORS = [
   "bg-amber-100 text-amber-700",
   "bg-emerald-100 text-emerald-700",
 ];
-const EMPTY_FORM = {
-  imageUrl: "",
-  name: "",
-  age: "",
-  dob: "",
-  gender: "Female",
-  bloodGroup: "A+",
-  phone: "",
-  email: "",
-  address: "",
-  assignedDoctor: ASSIGNED_DOCTORS[0],
-  status: "Active" as (typeof STATUSES)[number],
-  lastVisit: "",
-  allergies: "",
-  medicalHistory: "",
-  medications: "",
-};
-
-type FormState = typeof EMPTY_FORM;
-
-function patientToForm(p: Patient): FormState {
-  return {
-    imageUrl: p.imageUrl ?? "",
-    name: p.name,
-    age: p.age,
-    dob: p.dob ?? "",
-    gender: p.gender,
-    bloodGroup: p.bloodGroup,
-    phone: p.phone,
-    email: p.email,
-    address: p.address ?? "",
-    assignedDoctor: p.assignedDoctor,
-    status: p.status,
-    lastVisit: p.lastVisit,
-    allergies: (p.allergies ?? []).join("\n"),
-    medicalHistory: (p.medicalHistory ?? []).join("\n"),
-    medications: (p.medications ?? []).join("\n"),
-  };
-}
-
-function linesToArray(value: string): string[] {
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
 
 function apiPatientToPatient(p: any): Patient {
   return {
@@ -158,59 +107,10 @@ function apiPatientToPatient(p: any): Patient {
   };
 }
 
-const cellInputClass =
-  "w-full rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-[#7da3b3] focus:bg-white";
-
-const cellTextareaClass =
-  "w-full resize-none rounded-lg border border-transparent bg-transparent px-2 py-1.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-[#7da3b3] focus:bg-white";
-
-type FieldDef =
-  | { key: keyof FormState; label: string; icon: typeof User; type: "text" | "email" | "tel" | "date" | "number"; placeholder?: string; required?: boolean }
-  | { key: keyof FormState; label: string; icon: typeof User; type: "select"; options: readonly string[] }
-  | { key: keyof FormState; label: string; icon: typeof User; type: "textarea"; placeholder?: string };
-
-const FORM_SECTIONS: { title: string; fields: FieldDef[] }[] = [
-  {
-    title: "Personal Information",
-    fields: [
-      { key: "name", label: "Full name", icon: User, type: "text", placeholder: "Sita Rai", required: true },
-      { key: "gender", label: "Gender", icon: VenusAndMars, type: "select", options: ["Female", "Male", "Other"] },
-      { key: "dob", label: "Date of birth", icon: Cake, type: "date" },
-      { key: "age", label: "Age", icon: Cake, type: "number", placeholder: "28" },
-      { key: "bloodGroup", label: "Blood group", icon: Droplet, type: "select", options: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"] },
-    ],
-  },
-  {
-    title: "Contact Information",
-    fields: [
-      { key: "email", label: "Email", icon: Mail, type: "email", placeholder: "patient@email.com" },
-      { key: "phone", label: "Phone", icon: Phone, type: "tel", placeholder: "98XXXXXXXX", required: true },
-      { key: "address", label: "Address", icon: MapPin, type: "text", placeholder: "Bharatpur-10, Chitwan, Nepal" },
-    ],
-  },
-  {
-    title: "Care Information",
-    fields: [
-      { key: "assignedDoctor", label: "Assigned doctor", icon: Stethoscope, type: "select", options: ASSIGNED_DOCTORS },
-      { key: "status", label: "Status", icon: UserPlus, type: "select", options: STATUSES },
-      { key: "lastVisit", label: "Last visit", icon: CalendarCheck, type: "date" },
-    ],
-  },
-  {
-    title: "Medical Information",
-    fields: [
-      { key: "allergies", label: "Known allergies (one per line)", icon: AlertCircle, type: "textarea", placeholder: "Penicillin" },
-      { key: "medicalHistory", label: "Medical history (one per line)", icon: ClipboardList, type: "textarea", placeholder: "Type 2 diabetes" },
-      { key: "medications", label: "Current medications (one per line)", icon: Pill, type: "textarea", placeholder: "Metformin 500mg" },
-    ],
-  },
-];
-
 export default function PatientsPage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [doctorFilter, setDoctorFilter] = useState("All");
@@ -221,10 +121,6 @@ export default function PatientsPage() {
   const [profileTab, setProfileTab] = useState<"detail" | "medical" | "appointments">(
     "detail"
   );
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalMode, setModalMode] = useState<"add" | "edit">("add");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
   const [outletsList, setOutletsList] = useState<{ id: string; name: string }[]>([]);
   const [outletFilter, setOutletFilter] = useState("");
@@ -293,158 +189,7 @@ export default function PatientsPage() {
     loadPatients();
   }, []);
 
-  function update<K extends keyof FormState>(key: K, value: string) {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      if (key === "dob" && value) {
-        const birthDate = new Date(value);
-        if (!isNaN(birthDate.getTime())) {
-          const today = new Date();
-          let age = today.getFullYear() - birthDate.getFullYear();
-          const m = today.getMonth() - birthDate.getMonth();
-          if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-            age--;
-          }
-          if (age >= 0) {
-            next.age = String(age);
-          }
-        }
-      } else if (key === "age" && value && !prev.dob) {
-        const ageNum = parseInt(value, 10);
-        if (!isNaN(ageNum) && ageNum >= 0) {
-          const birthYear = new Date().getFullYear() - ageNum;
-          next.dob = `${birthYear}-01-01`;
-        }
-      }
-      return next;
-    });
-  }
 
-  function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    update("imageUrl", URL.createObjectURL(file));
-  }
-
-  function openAddModal() {
-    setModalMode("add");
-    setEditingId(null);
-    setForm({ ...EMPTY_FORM, lastVisit: new Date().toISOString().slice(0, 10) });
-    setModalOpen(true);
-  }
-
-  function openEditModal(p: Patient) {
-    setModalMode("edit");
-    setEditingId(p.id);
-    setForm(patientToForm(p));
-    setModalOpen(true);
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-
-    const { allergies, medicalHistory, medications } = form;
-    const allergiesList = linesToArray(allergies);
-    const medicalHistoryList = linesToArray(medicalHistory);
-    const medicationsList = linesToArray(medications);
-
-    const trimmedName = form.name.trim();
-    const [firstName, ...rest] = trimmedName.split(" ");
-    const lastName = rest.join(" ") || "-";
-
-    try {
-      if (modalMode === "edit" && editingId) {
-        const payload: Record<string, any> = {
-          firstName,
-          lastName,
-          age: Number(form.age) || 0,
-          dob: form.dob || undefined,
-          phone: form.phone || undefined,
-          email: form.email || undefined,
-          address: form.address || undefined,
-          gender: form.gender || undefined,
-          bloodGroup: form.bloodGroup || undefined,
-          treatmentCompleted: form.status === "Inactive",
-          allergies: allergiesList,
-          medicalHistory: medicalHistoryList,
-          medications: medicationsList,
-        };
-
-        const res = await axios.patch(`/api/patent/${editingId}`, payload);
-        if (res.data?.success === false) {
-          alert(res.data?.error || "Failed to update patient.");
-          return;
-        }
-      } else {
-        let locId = outletFilter !== "all" ? outletFilter : (outletsList[0]?.id || "");
-        if (!locId) {
-          const servicesRes = await axios.get("/api/services").catch(() => null);
-          if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
-            locId = servicesRes.data.data.services[0].locationId;
-          }
-        }
-
-        const payload: Record<string, any> = {
-          locationId: locId,
-          firstName,
-          lastName,
-          age: Number(form.age) || 0,
-          dob: form.dob || undefined,
-          phone: form.phone || undefined,
-          email: form.email || undefined,
-          address: form.address || undefined,
-          gender: form.gender || undefined,
-          bloodGroup: form.bloodGroup || undefined,
-          allergies: allergiesList,
-          medicalHistory: medicalHistoryList,
-          currentMedications: medicationsList,
-        };
-
-        const res = await axios.post("/api/patent", payload);
-        if (res.data?.success === false) {
-          alert(res.data?.error || "Failed to create patient.");
-          return;
-        }
-      }
-
-      await loadPatients();
-      setForm(EMPTY_FORM);
-      setEditingId(null);
-      setModalOpen(false);
-
-    } catch (err: any) {
-      console.error("Failed to save patient:", err);
-
-      alert(err.response?.data?.error || "Failed to save patient.");
-    }
-  }
-
-  async function handleDeletePatient(id: string, e: React.MouseEvent) {
-    e.stopPropagation();
-
-    const confirmed = window.confirm("Delete this patient? This action cannot be undone.");
-    if (!confirmed) return;
-
-    const previous = patients;
-    setDeletingId(id);
-    // Optimistically remove from the list
-    setPatients((prev) => prev.filter((p) => p.id !== id));
-
-    try {
-      const res = await axios.delete(`/api/patent/${id}`);
-      if (!res.data?.success) {
-        throw new Error(res.data?.error || "Delete failed");
-      }
-      if (selectedPatient?.id === id) setSelectedPatient(null);
-    } catch (err) {
-      console.error("Failed to delete patient:", err);
-      // Roll back on failure
-      setPatients(previous);
-      window.alert("Failed to delete patient. Please try again.");
-    } finally {
-      setDeletingId(null);
-    }
-  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -625,14 +370,6 @@ export default function PatientsPage() {
                 </select>
               </div>
             </div>
-
-            <button
-              onClick={openAddModal}
-              className="inline-flex items-center gap-2 rounded-full bg-[#749fb1] px-5 py-2.5 text-[0.9rem] font-medium text-white shadow-sm transition-colors hover:bg-[#345263]"
-            >
-              <Plus className="h-4 w-4" strokeWidth={2} />
-              Add Patient
-            </button>
           </div>
 
           <div className="overflow-x-auto">
@@ -666,18 +403,15 @@ export default function PatientsPage() {
                   <th className="px-4 py-3 text-[0.78rem] font-semibold uppercase tracking-wide text-slate-500">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-[0.78rem] font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="px-6 py-3 text-[0.78rem] font-semibold uppercase tracking-wide text-slate-500">
                     Payment
-                  </th>
-                  <th className="px-6 py-3 text-right text-[0.78rem] font-semibold uppercase tracking-wide text-slate-500">
-                    Actions
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={11} className="px-6 py-16 text-center text-slate-500">
+                    <td colSpan={10} className="px-6 py-16 text-center text-slate-500">
                       <span className="inline-flex items-center gap-2">
                         <Loader2 className="h-4 w-4 animate-spin text-[#7da3b3]" />
                         Loading patients...
@@ -688,7 +422,7 @@ export default function PatientsPage() {
 
                 {!loading && loadError && (
                   <tr>
-                    <td colSpan={11} className="px-6 py-16 text-center text-rose-500">
+                    <td colSpan={10} className="px-6 py-16 text-center text-rose-500">
                       {loadError}
                     </td>
                   </tr>
@@ -698,7 +432,6 @@ export default function PatientsPage() {
                   !loadError &&
                   paginatedPatients.map((p, i) => {
                     const color = AVATAR_COLORS[i % AVATAR_COLORS.length];
-                    const isDeleting = deletingId === p.id;
                     return (
                       <tr
                         key={`${p.id}-${i}`}
@@ -754,7 +487,7 @@ export default function PatientsPage() {
                             {p.status}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-xs whitespace-nowrap">
+                        <td className="px-6 py-4 text-xs whitespace-nowrap">
                           {p.balanceDueCents === null ? (
                             <span className="text-slate-400 text-[0.72rem]">No data</span>
                           ) : p.balanceDueCents > 0 ? (
@@ -769,39 +502,13 @@ export default function PatientsPage() {
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openEditModal(p);
-                              }}
-                              aria-label="Edit patient"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-slate-100 hover:text-[#3f6274]"
-                            >
-                              <SquarePen className="h-3.5 w-3.5" strokeWidth={2} />
-                            </button>
-                            <button
-                              onClick={(e) => handleDeletePatient(p.id, e)}
-                              disabled={isDeleting}
-                              aria-label="Delete patient"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-300 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                            >
-                              {isDeleting ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={2} />
-                              ) : (
-                                <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                              )}
-                            </button>
-                          </div>
-                        </td>
                       </tr>
                     );
                   })}
 
                 {!loading && !loadError && filtered.length === 0 && (
                   <tr>
-                    <td colSpan={11} className="px-6 py-16 text-center text-slate-500">
+                    <td colSpan={10} className="px-6 py-16 text-center text-slate-500">
                       No patients match your filters.
                     </td>
                   </tr>
@@ -859,111 +566,7 @@ export default function PatientsPage() {
       </div>
 
 
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40">
-          <div onClick={() => setModalOpen(false)} className="absolute inset-0" aria-hidden />
-          <div className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto bg-slate-50 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-900/5 bg-slate-50 px-6 py-4">
-              <button
-                onClick={() => setModalOpen(false)}
-                className="inline-flex items-center gap-1.5 text-[0.9rem] font-medium text-slate-600 transition-colors hover:text-slate-900"
-              >
-                <ChevronLeft className="h-4 w-4" strokeWidth={2} />
-                Back
-              </button>
-              <h2 className="text-[0.95rem] font-semibold text-slate-900">
-                {modalMode === "edit" ? "Edit Patient" : "Add Patient"}
-              </h2>
-            </div>
 
-            <div className="px-6 py-6">
-              <form onSubmit={handleSubmit} className="space-y-8">
-
-
-                {FORM_SECTIONS.map((section) => (
-                  <div
-                    key={section.title}
-                    className="overflow-hidden rounded-2xl border border-slate-900/5 bg-white shadow-sm"
-                  >
-                    <p className="border-b border-slate-900/5 px-5 py-3 text-[0.88rem] font-semibold text-slate-900">
-                      <span className="border-l-2 border-[#3f6274] pl-2">{section.title}</span>
-                    </p>
-                    <table className="w-full border-collapse">
-                      <tbody>
-                        {section.fields.map((field, i) => {
-                          const Icon = field.icon;
-                          return (
-                            <tr
-                              key={field.key}
-                              className={i !== section.fields.length - 1 ? "border-b border-slate-900/5" : ""}
-                            >
-                              <td className="w-40 shrink-0 bg-slate-50/60 px-4 py-2.5 align-top sm:w-48">
-                                <span className="flex items-center gap-1.5 text-[0.78rem] font-medium text-slate-600">
-                                  <Icon className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
-                                  {field.label}
-                                  {"required" in field && field.required && (
-                                    <span className="text-rose-400">*</span>
-                                  )}
-                                </span>
-                              </td>
-                              <td className="px-3 py-1">
-                                {field.type === "select" ? (
-                                  <select
-                                    value={form[field.key]}
-                                    onChange={(e) => update(field.key, e.target.value)}
-                                    className={cellInputClass}
-                                  >
-                                    {field.options.map((opt) => (
-                                      <option key={opt}>{opt}</option>
-                                    ))}
-                                  </select>
-                                ) : field.type === "textarea" ? (
-                                  <textarea
-                                    rows={2}
-                                    value={form[field.key]}
-                                    onChange={(e) => update(field.key, e.target.value)}
-                                    placeholder={field.placeholder}
-                                    className={cellTextareaClass}
-                                  />
-                                ) : (
-                                  <input
-                                    type={field.type}
-                                    required={"required" in field ? field.required : false}
-                                    value={form[field.key]}
-                                    onChange={(e) => update(field.key, e.target.value)}
-                                    placeholder={field.placeholder}
-                                    className={cellInputClass}
-                                  />
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ))}
-
-                <div className="flex items-center gap-3">
-                  <button
-                    type="submit"
-                    className="rounded-full bg-[#7da3b3] px-6 py-2.5 text-[0.9rem] font-medium text-white transition-colors hover:bg-[#345263]"
-                  >
-                    {modalMode === "edit" ? "Save Changes" : "Add Patient"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalOpen(false)}
-                    className="rounded-full px-5 py-2.5 text-[0.9rem] font-medium text-slate-500 transition-colors hover:text-slate-800"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Patient detail side panel */}
       {selectedPatient && (

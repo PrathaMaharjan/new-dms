@@ -288,13 +288,19 @@ export default function AdminStaffPage() {
   async function confirmDelete() {
     if (!deleteTarget) return;
     try {
-      await axios.delete(`/api/staff/${deleteTarget.id}`);
-    } catch (err) {
+      const res = await axios.delete(`/api/staff/${deleteTarget.id}`);
+      if (res.data?.success === false) {
+        alert(res.data?.error || "Failed to delete staff.");
+        return;
+      }
+      await fetchStaff();
+    } catch (err: any) {
       console.error("Failed to delete staff:", err);
+      alert(err.response?.data?.error || "Failed to delete staff.");
+    } finally {
+      setSelectedStaff((prev) => (prev?.id === deleteTarget.id ? null : prev));
+      setDeleteTarget(null);
     }
-    setStaff((prev) => prev.filter((s) => s.id !== deleteTarget.id));
-    setSelectedStaff((prev) => (prev?.id === deleteTarget.id ? null : prev));
-    setDeleteTarget(null);
   }
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { inventoryItems, locations, treatments, treatmentSupplies } from "@/db/schema";
+import { appointments, inventoryItems, locations, treatments, treatmentSupplies } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { createTreatmentSchema, updateTreatmentSchema } from "@/lib/validators/treatments";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -284,14 +284,30 @@ export async function deleteTreatment(treatmentId: string): Promise<DeleteTreatm
       return { success: false, error: "Treatment not found.", code: "NOT_FOUND" };
     }
 
-    await db.delete(treatments).where(eq(treatments.id, treatmentId));
+    await db.transaction(async (tx) => {
+      // 1. Unlink any appointments referencing this treatment so foreign key constraint doesn't block deletion
+      await tx
+        .update(appointments)
+        .set({ treatmentId: sql`NULL` })
+        .where(eq(appointments.treatmentId, treatmentId));
+
+      // 2. Delete any treatment supplies
+      await tx
+        .delete(treatmentSupplies)
+        .where(eq(treatmentSupplies.treatmentId, treatmentId));
+
+      // 3. Delete the treatment itself
+      await tx
+        .delete(treatments)
+        .where(eq(treatments.id, treatmentId));
+    });
 
     return { success: true };
   } catch (err) {
-    if (err instanceof Error && err.message === "UNAUTHORIZED") {
-      return { success: false, error: "You must be logged in.", code: "UNAUTHORIZED" };
+    if (err instanceof SessionError) {
+      return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
-    console.error(err);
+    console.error("Delete treatment error:", err);
     return { success: false, error: "Something went wrong deleting the treatment.", code: "SERVER_ERROR" };
   }
 }

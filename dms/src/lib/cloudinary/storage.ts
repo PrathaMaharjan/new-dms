@@ -9,6 +9,14 @@ export const getImageUrl = (
   options: { width?: number; height?: number } = {},
 ): string | null => {
   if (!key) return null;
+  if (
+    key.startsWith("http://") ||
+    key.startsWith("https://") ||
+    key.startsWith("blob:") ||
+    key.startsWith("data:")
+  ) {
+    return key;
+  }
 
   const { width = 400, height } = options;
 

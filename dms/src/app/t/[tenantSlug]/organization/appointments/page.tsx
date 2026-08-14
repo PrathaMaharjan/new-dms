@@ -9,20 +9,12 @@ import {
   CalendarX2,
   Filter,
   ChevronLeft,
-  SquarePen,
   IdCard,
   Clock,
   User,
   Phone,
-  Stethoscope,
-  Cross,
   MapPin,
-  HeartPulse,
-  Pill,
-  Activity,
   CalendarDays,
-  ClipboardList,
-  Trash2,
   CheckCircle2,
   XCircle,
   Hourglass,
@@ -30,6 +22,7 @@ import {
   Loader2,
   AlertCircle,
   RefreshCw,
+  Stethoscope,
 } from "lucide-react";
 
 const STATUSES = ["Scheduled", "Confirmed", "Completed", "Cancelled"] as const;
@@ -76,7 +69,7 @@ type Appointment = {
   rawStatus: string;
   notes?: string;
   createdDate?: string;
-  locationId: string;
+  locationId?: string;
 };
 
 const inputClass =
@@ -177,137 +170,24 @@ function getInitials(name: string) {
   return (first + last).toUpperCase();
 }
 
-const LIST_GRID = "grid grid-cols-[2fr_1.2fr_1fr_0.9fr_1fr_5rem] items-center gap-4";
-
-async function deductInventoryForCompletedAppointment(params: {
-  treatmentId?: string;
-  treatmentName?: string;
-  locationId?: string;
-}) {
-  let locId = params.locationId;
-  if (!locId || locId === "all") {
-    try {
-      const outletsRes = await axios.get("/api/outlets").catch(() => null);
-      if (outletsRes?.data?.success && Array.isArray(outletsRes.data.data?.locations) && outletsRes.data.data.locations.length > 0) {
-        locId = outletsRes.data.data.locations[0]?.id;
-      }
-    } catch (e) { }
-  }
-
-  if (!locId) return;
-
-  try {
-    let recipeItems: { materialId: string; quantity: number }[] = [];
-
-    const [treatRes, itemRes] = await Promise.all([
-      axios.get(`/api/treatment?locationId=${locId}&limit=100`).catch(() => null),
-      axios.get(`/api/inventory/item?locationId=${locId}`).catch(() => null),
-    ]);
-
-    const treatmentsList: any[] = treatRes?.data?.success && Array.isArray(treatRes.data.data?.treatments)
-      ? treatRes.data.data.treatments
-      : [];
-
-    const inventoryItemsList: any[] = itemRes?.data?.success && Array.isArray(itemRes.data.data?.items)
-      ? itemRes.data.data.items
-      : [];
-
-    const normName = (params.treatmentName || "").trim().toLowerCase();
-    const matchingTreatment = treatmentsList.find(
-      (t: any) =>
-        (params.treatmentId && t.id === params.treatmentId) ||
-        (normName && t.name?.trim().toLowerCase() === normName)
-    );
-
-    const targetTreatmentId = matchingTreatment?.id || params.treatmentId;
-
-    if (typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem("dms_service_recipes_v1");
-        const stored = raw ? JSON.parse(raw) : {};
-
-        if (targetTreatmentId && stored[targetTreatmentId]?.items?.length > 0) {
-          recipeItems = stored[targetTreatmentId].items;
-        } else {
-          for (const key of Object.keys(stored)) {
-            const recipe = stored[key];
-            if (!recipe || !Array.isArray(recipe.items) || recipe.items.length === 0) continue;
-            const foundT = treatmentsList.find((t: any) => t.id === key);
-            if (
-              key === targetTreatmentId ||
-              (foundT && normName && foundT.name?.trim().toLowerCase() === normName)
-            ) {
-              recipeItems = recipe.items;
-              break;
-            }
-          }
-        }
-      } catch (e) { }
-    }
-
-    if (recipeItems.length === 0 && matchingTreatment && Array.isArray(matchingTreatment.supplies)) {
-      recipeItems = matchingTreatment.supplies.map((s: any) => ({
-        materialId: s.itemId || s.materialId,
-        quantity: s.quantityRequired || s.quantity || 1,
-      }));
-    }
-
-    for (const item of recipeItems) {
-      const targetInvItem = inventoryItemsList.find(
-        (inv: any) => inv.id === item.materialId
-      );
-
-      const targetItemId = targetInvItem?.id || item.materialId;
-      const targetLocId = targetInvItem?.locationId || locId;
-
-      if (targetItemId && Number(item.quantity) > 0) {
-        await axios
-          .post(`/api/inventory/item/${targetItemId}/movement`, {
-            locationId: targetLocId,
-            quantity: -Math.abs(Math.round(Number(item.quantity))),
-            type: "used",
-            note: `Automated deduction for completed appointment (${params.treatmentName || "Service"})`,
-          })
-          .catch(() => null);
-      }
-    }
-  } catch (err) { }
-}
+const LIST_GRID = "grid grid-cols-[1.4fr_1.1fr_1.3fr_1.1fr_1fr_0.8fr_0.9fr] items-center gap-4";
 
 export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [doctorsList, setDoctorsList] = useState<DoctorOption[]>([]);
-  const [treatmentsList, setTreatmentsList] = useState<TreatmentOption[]>([]);
-  const [locationId, setLocationId] = useState<string | null>(null);
-
   const [loading, setLoading] = useState(true);
+  const [locationId, setLocationId] = useState("");
+  const [outletsList, setOutletsList] = useState<{ id: string; name: string }[]>(OUTLETS_DEFAULT);
+  const [outletFilter, setOutletFilter] = useState("all");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Appointment | null>(null);
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
   const [dateFilter, setDateFilter] = useState<"All" | "Today" | "Upcoming">("All");
-  const [outletsList, setOutletsList] = useState<{ id: string; name: string }[]>(OUTLETS_DEFAULT);
-  const [outletFilter, setOutletFilter] = useState("");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState({
-    patientName: "",
-    patientPhone: "",
-    treatmentId: "",
-    doctorId: "",
-    date: "",
-    time: "",
-    status: "Scheduled" as Status,
-    notes: "",
-  });
+
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [profileTab, setProfileTab] = useState<"detail" | "notes">("detail");
   const todayStr = getTodayStr();
 
-  // Fetches ALL outlets' appointments once, tags each with its locationId,
-  // and lets the outlet filter run entirely client-side (mirrors the patients page).
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -324,71 +204,13 @@ export default function AppointmentsPage() {
           }
         });
         setOutletsList(mappedOutletsList);
-        if (mappedOutletsList.length > 0) {
-          setOutletFilter((prev) => (prev === "all" || !prev ? mappedOutletsList[0].id : prev));
+        if (mappedOutletsList.length > 0 && outletFilter === "all") {
+          setOutletFilter(mappedOutletsList[0].id);
         }
       }
 
-      let currentLocId = locationId;
-      if (!currentLocId) {
-        const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
-          axios.get("/api/services").catch(() => null),
-          axios.get("/api/treatment").catch(() => null),
-          axios.get("/api/patent").catch(() => null),
-        ]);
-
-        if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
-          currentLocId = servicesRes.data.data.services[0].locationId;
-        } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
-          currentLocId = treatmentsRes.data.data.treatments[0].locationId;
-        } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
-          currentLocId = patientsRes.data.data.patients[0].locationId;
-        }
-
-        if (currentLocId) setLocationId(currentLocId);
-      }
-
-      if (!currentLocId && mappedOutletsList.length === 0) {
-        setErrorMsg("Location ID could not be identified for this session.");
-        setLoading(false);
-        return;
-      }
-
-      let docs: DoctorOption[] = [];
-      let doctorsRes = await axios
-        .get("/api/doctor", { params: { locationId: currentLocId } })
-        .catch(() => null);
-      if (!doctorsRes?.data?.success || !doctorsRes.data.data.doctors?.length) {
-        doctorsRes = await axios.get("/api/doctor").catch(() => null);
-      }
-      if (doctorsRes?.data?.success && doctorsRes.data.data.doctors) {
-        const seenDocs = new Set<string>();
-        doctorsRes.data.data.doctors.forEach((d: any) => {
-          if (d.id && !seenDocs.has(d.id)) {
-            seenDocs.add(d.id);
-            docs.push({ id: d.id, name: d.name });
-          }
-        });
-        setDoctorsList(docs);
-      }
-
-      const treatmentsRes = await axios.get("/api/treatment").catch(() => null);
-      let treatments: TreatmentOption[] = [];
-      if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments) {
-        const seenTreatments = new Set<string>();
-        treatmentsRes.data.data.treatments.forEach((t: any) => {
-          if (t.id && !seenTreatments.has(t.id)) {
-            seenTreatments.add(t.id);
-            treatments.push({ id: t.id, name: t.name });
-          }
-        });
-        setTreatmentsList(treatments);
-      }
-
-      // Always pull appointments for EVERY outlet, tagging each with its
-      // source locationId so filtering can happen client-side without refetching.
       const targetIds =
-        mappedOutletsList.length > 0 ? mappedOutletsList.map((o) => o.id) : [currentLocId as string];
+        mappedOutletsList.length > 0 ? mappedOutletsList.map((o) => o.id) : [locationId];
 
       const responses = await Promise.all(
         targetIds.map((id: string) =>
@@ -411,13 +233,6 @@ export default function AppointmentsPage() {
       if (rawAppts.length > 0) {
         const mapped: Appointment[] = rawAppts.map(({ raw: a, locationId: locId }) => {
           const { date, time } = splitIsoStartTime(a.startTime);
-
-          const docObj = docs.find(
-            (d) =>
-              (a.providerId && d.id === a.providerId) ||
-              (a.providerName && d.name.toLowerCase() === a.providerName.toLowerCase())
-          );
-
           return {
             id: a.id,
             appointmentId: a.appointmentCode || `APT-${String(a.id).slice(-4)}`,
@@ -425,8 +240,8 @@ export default function AppointmentsPage() {
             patientPhone: a.patientPhone || "-",
             treatment: a.treatmentName || "General Service",
             treatmentId: a.treatmentId,
-            doctor: a.providerName || docObj?.name || "Unassigned",
-            doctorId: a.providerId || docObj?.id || "",
+            doctor: a.providerName || "Unassigned",
+            doctorId: a.providerId || "",
             date,
             time,
             status: mapApiStatus(a.status),
@@ -438,7 +253,6 @@ export default function AppointmentsPage() {
             locationId: locId,
           };
         });
-
         setAppointments(mapped);
       } else {
         setAppointments([]);
@@ -449,53 +263,15 @@ export default function AppointmentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [locationId]);
+  }, [locationId, outletFilter]);
 
   useEffect(() => {
     loadData();
-    // outletFilter intentionally excluded — filtering now happens client-side
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadData]);
 
   function openProfile(a: Appointment) {
     setSelected(a);
     setProfileTab("detail");
-  }
-
-  function openEditModal(a: Appointment) {
-    setEditingId(a.id);
-    setEditForm({
-      patientName: a.patientName,
-      patientPhone: a.patientPhone,
-      treatmentId: a.treatmentId || treatmentsList[0]?.id || "",
-      doctorId: a.doctorId,
-      date: a.date,
-      time: a.time,
-      status: a.status,
-      notes: a.notes || "",
-    });
-  }
-
-  function requestDelete(a: Appointment) {
-    setDeleteTarget(a);
-  }
-
-  async function confirmDelete() {
-    if (!deleteTarget) return;
-    const a = deleteTarget;
-    try {
-      setDeletingId(a.id);
-
-      await axios.delete(`/api/appoments/${a.id}`);
-      setSelected((prev) => (prev?.id === a.id ? null : prev));
-      setDeleteTarget(null);
-      await loadData();
-    } catch (err: any) {
-      console.error("Delete error:", err);
-      alert(err.response?.data?.error || "Failed to delete appointment.");
-    } finally {
-      setDeletingId(null);
-    }
   }
 
   const filtered = useMemo(() => {
@@ -519,7 +295,6 @@ export default function AppointmentsPage() {
   }, [appointments, query, statusFilter, dateFilter, outletFilter, todayStr]);
 
   const stats = useMemo(() => {
-    // Stats should reflect the currently selected outlet too
     const scoped =
       outletFilter === "all" ? appointments : appointments.filter((a) => a.locationId === outletFilter);
     const todayCount = scoped.filter((a) => a.date === todayStr).length;
@@ -546,56 +321,8 @@ export default function AppointmentsPage() {
     ];
   }, [appointments, outletFilter, todayStr]);
 
-  function updateEdit<K extends keyof typeof editForm>(key: K, value: (typeof editForm)[K]) {
-    setEditForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  async function handleEditSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!editingId) return;
-
-    setSubmitting(true);
-    try {
-      const payload: Record<string, any> = {
-        patientName: editForm.patientName,
-        patientPhone: editForm.patientPhone,
-        treatmentId: editForm.treatmentId || undefined,
-        providerId: editForm.doctorId || undefined,
-        date: editForm.date,
-        time: editForm.time,
-        status: statusToApiValue(editForm.status),
-        notes: editForm.notes,
-      };
-
-      const res = await axios.patch(`/api/appoments/${editingId}`, payload);
-      if (res.data?.success === false) {
-        alert(res.data?.error || "Failed to save appointment.");
-        return;
-      }
-
-      if (editForm.status === "Completed") {
-        const currentAppt = appointments.find((a) => a.id === editingId);
-        await deductInventoryForCompletedAppointment({
-          treatmentId: editForm.treatmentId || currentAppt?.treatmentId,
-          treatmentName: currentAppt?.treatment,
-          locationId: currentAppt?.locationId || outletFilter,
-        });
-      }
-
-      await loadData();
-      setEditingId(null);
-    } catch (err: any) {
-      console.error("Save appointment error:", err);
-      alert(err.response?.data?.error || "Failed to save appointment.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-50">
-
-
       <div className="sticky top-0 z-20 w-full bg-white px-6 py-6 lg:px-10">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#345263] sm:text-3xl">
@@ -609,8 +336,9 @@ export default function AppointmentsPage() {
               onChange={(e) => setOutletFilter(e.target.value)}
               className="appearance-none rounded-full border border-slate-900/10 bg-white py-2.5 pl-9 pr-8 text-[0.9rem] font-medium text-[#345263] outline-none focus:border-[#7da3b3]"
             >
-              {outletsList.map((o, idx) => (
-                <option key={`${o.id}-${idx}`} value={o.id}>
+              <option value="all">All Outlets</option>
+              {outletsList.map((o) => (
+                <option key={o.id} value={o.id}>
                   {o.name}
                 </option>
               ))}
@@ -635,7 +363,6 @@ export default function AppointmentsPage() {
           </div>
         )}
 
-        {/* Stats */}
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => (
             <div key={stat.label} className="rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm">
@@ -695,17 +422,17 @@ export default function AppointmentsPage() {
             </div>
           </div>
 
-          {/* List */}
           <div className="mt-6 overflow-hidden rounded-2xl border border-slate-900/5">
             <div
               className={`${LIST_GRID} hidden bg-slate-50 px-5 py-3 text-[0.75rem] font-medium uppercase tracking-wide text-slate-500 sm:grid`}
             >
-              <span>Name</span>
+              <span>Patient</span>
+              <span>Phone</span>
+              <span>Service</span>
               <span>Doctor</span>
               <span>Date</span>
               <span>Time</span>
               <span>Status</span>
-              <span className="text-right">Actions</span>
             </div>
 
             {loading ? (
@@ -726,69 +453,63 @@ export default function AppointmentsPage() {
                       onClick={() => openProfile(a)}
                       className={`${LIST_GRID} group cursor-pointer flex-wrap gap-y-3 bg-white px-5 py-4 transition-colors hover:bg-[#7da3b3]/[0.06] max-sm:flex`}
                     >
+                      {/* Patient Name */}
                       <div className="flex min-w-[10rem] items-center gap-3">
                         <div
-                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[0.8rem] font-semibold ${avatarColor}`}
+                          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[0.8rem] font-semibold ${avatarColor}`}
                         >
                           {getInitials(a.patientName)}
                         </div>
-                        <div className="min-w-0">
-                          <p className="truncate text-[0.95rem] font-semibold text-slate-900">{a.patientName}</p>
-                          <p className="truncate text-[0.8rem] text-slate-500">{a.treatment}</p>
-                        </div>
+                        <p className="truncate text-[0.92rem] font-semibold text-slate-900">{a.patientName}</p>
                       </div>
 
-                      <div className="min-w-[8rem] text-[0.85rem] text-slate-600">
-                        <p className="flex items-center gap-1.5">
-                          <User className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
-                          {a.doctor}
+                      {/* Phone */}
+                      <div className="min-w-[7rem] text-[0.85rem] text-slate-600">
+                        <p className="flex items-center gap-1.5 font-medium text-slate-700">
+                          <Phone className="h-3.5 w-3.5 shrink-0 text-slate-400" strokeWidth={2} />
+                          <span className="truncate">{a.patientPhone && a.patientPhone !== "-" ? a.patientPhone : "—"}</span>
                         </p>
                       </div>
 
+                      {/* Service / Treatment */}
+                      <div className="min-w-[8rem] text-[0.85rem] text-slate-700">
+                        <p className="flex items-center gap-1.5 font-medium">
+                          <Stethoscope className="h-3.5 w-3.5 shrink-0 text-[#3f6274]" strokeWidth={2} />
+                          <span className="truncate">{a.treatment}</span>
+                        </p>
+                      </div>
+
+                      {/* Doctor */}
+                      <div className="min-w-[8rem] text-[0.85rem] text-slate-600">
+                        <p className="flex items-center gap-1.5">
+                          <User className="h-3.5 w-3.5 shrink-0 text-slate-400" strokeWidth={2} />
+                          <span className="truncate">{a.doctor}</span>
+                        </p>
+                      </div>
+
+                      {/* Date */}
                       <div className="min-w-[7rem] text-[0.85rem] text-slate-600">
                         <p className="flex items-center gap-1.5">
-                          <CalendarDays className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                          <CalendarDays className="h-3.5 w-3.5 shrink-0 text-slate-400" strokeWidth={2} />
                           {formatDateLabel(a.date, todayStr)}
                         </p>
                       </div>
 
+                      {/* Time */}
                       <div className="min-w-[6rem] text-[0.85rem] text-slate-600">
                         <p className="flex items-center gap-1.5">
-                          <Clock className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                          <Clock className="h-3.5 w-3.5 shrink-0 text-slate-400" strokeWidth={2} />
                           {formatTimeLabel(a.time)}
                         </p>
                       </div>
 
+                      {/* Status */}
                       <span
                         className={`inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.78rem] font-medium ${statusColor}`}
                       >
                         <StatusIcon className="h-3.5 w-3.5" strokeWidth={2} />
                         {a.status}
                       </span>
-
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openEditModal(a);
-                          }}
-                          aria-label="Edit appointment"
-                          className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
-                        >
-                          <SquarePen className="h-4 w-4" strokeWidth={2} />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            requestDelete(a);
-                          }}
-                          disabled={deletingId === a.id}
-                          aria-label="Delete appointment"
-                          className="flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition hover:bg-rose-50 hover:text-rose-500 disabled:opacity-50"
-                        >
-                          <Trash2 className="h-4 w-4" strokeWidth={2} />
-                        </button>
-                      </div>
                     </div>
                   );
                 })}
@@ -804,176 +525,6 @@ export default function AppointmentsPage() {
         </div>
       </div>
 
-      {/* Edit modal */}
-      {editingId && (
-        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40">
-          <div onClick={() => setEditingId(null)} className="absolute inset-0" aria-hidden />
-          <div className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto bg-slate-50 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-900/5 bg-slate-50 px-6 py-4">
-              <button
-                onClick={() => setEditingId(null)}
-                className="inline-flex items-center gap-1.5 text-[0.9rem] font-medium text-slate-600 transition-colors hover:text-slate-900"
-              >
-                <ChevronLeft className="h-4 w-4" strokeWidth={2} />
-                Back
-              </button>
-              <h2 className="text-[0.95rem] font-semibold text-slate-900">Edit Appointment</h2>
-            </div>
-
-            <div className="px-6 py-6">
-              <form onSubmit={handleEditSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <User className="h-3.5 w-3.5" strokeWidth={2} />
-                      Patient name
-                    </span>
-                    <input
-                      required
-                      type="text"
-                      value={editForm.patientName}
-                      onChange={(e) => updateEdit("patientName", e.target.value)}
-                      className={inputClass}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <Phone className="h-3.5 w-3.5" strokeWidth={2} />
-                      Phone number
-                    </span>
-                    <input
-                      required
-                      type="tel"
-                      value={editForm.patientPhone}
-                      onChange={(e) => updateEdit("patientPhone", e.target.value)}
-                      className={inputClass}
-                    />
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <Stethoscope className="h-3.5 w-3.5" strokeWidth={2} />
-                      Treatment
-                    </span>
-                    <select
-                      value={editForm.treatmentId}
-                      onChange={(e) => updateEdit("treatmentId", e.target.value)}
-                      className={inputClass}
-                    >
-                      {treatmentsList.map((t, idx) => (
-                        <option key={`${t.id}-${idx}`} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <User className="h-3.5 w-3.5" strokeWidth={2} />
-                      Doctor
-                    </span>
-                    <select
-                      value={editForm.doctorId}
-                      onChange={(e) => updateEdit("doctorId", e.target.value)}
-                      className={inputClass}
-                    >
-                      <option value="" disabled>
-                        Select doctor
-                      </option>
-                      {doctorsList.map((d, idx) => (
-                        <option key={`${d.id}-${idx}`} value={d.id}>
-                          {d.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <CalendarDays className="h-3.5 w-3.5" strokeWidth={2} />
-                      Date
-                    </span>
-                    <input
-                      required
-                      type="date"
-                      value={editForm.date}
-                      onChange={(e) => updateEdit("date", e.target.value)}
-                      className={inputClass}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <Clock className="h-3.5 w-3.5" strokeWidth={2} />
-                      Time
-                    </span>
-                    <input
-                      required
-                      type="time"
-                      value={editForm.time}
-                      onChange={(e) => updateEdit("time", e.target.value)}
-                      className={inputClass}
-                    />
-                  </label>
-                </div>
-
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <BadgeCheck className="h-3.5 w-3.5" strokeWidth={2} />
-                    Status
-                  </span>
-                  <select
-                    value={editForm.status}
-                    onChange={(e) => updateEdit("status", e.target.value as Status)}
-                    className={inputClass}
-                  >
-                    {STATUSES.map((s) => (
-                      <option key={s}>{s}</option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <ClipboardList className="h-3.5 w-3.5" strokeWidth={2} />
-                    Notes
-                  </span>
-                  <textarea
-                    rows={3}
-                    value={editForm.notes}
-                    onChange={(e) => updateEdit("notes", e.target.value)}
-                    className={textareaClass}
-                  />
-                </label>
-
-                <div className="flex items-center gap-3 pt-2">
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="inline-flex items-center gap-2 rounded-full bg-[#7da3b3] px-6 py-2.5 text-[0.9rem] font-medium text-white transition-colors hover:bg-[#345263] disabled:opacity-60"
-                  >
-                    {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                    Save Changes
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setEditingId(null)}
-                    disabled={submitting}
-                    className="rounded-full px-5 py-2.5 text-[0.9rem] font-medium text-slate-500 transition-colors hover:text-slate-800"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Detail side panel */}
       {selected && (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40">
           <div onClick={() => setSelected(null)} className="absolute inset-0" aria-hidden />
@@ -985,15 +536,6 @@ export default function AppointmentsPage() {
               >
                 <ChevronLeft className="h-4 w-4" strokeWidth={2} />
                 Back
-              </button>
-              <button
-                onClick={() => requestDelete(selected)}
-                disabled={deletingId === selected.id}
-                aria-label="Delete appointment"
-                className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[0.85rem] font-medium text-rose-500 transition-colors hover:bg-rose-50 disabled:opacity-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" strokeWidth={2} />
-                Delete
               </button>
             </div>
 
@@ -1099,41 +641,6 @@ export default function AppointmentsPage() {
                   )}
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete confirmation modal */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 px-4">
-          <div onClick={() => setDeleteTarget(null)} className="absolute inset-0" aria-hidden />
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-rose-500">
-              <Trash2 className="h-5 w-5" strokeWidth={2} />
-            </div>
-            <h3 className="mt-4 text-[1.05rem] font-semibold text-slate-900">Delete appointment?</h3>
-            <p className="mt-1.5 text-[0.85rem] leading-relaxed text-slate-500">
-              This will remove <span className="font-medium text-slate-700">{deleteTarget.patientName}</span>'s
-              appointment from your schedule. This can't be undone from here.
-            </p>
-            <div className="mt-6 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={confirmDelete}
-                disabled={deletingId === deleteTarget.id}
-                className="flex-1 rounded-full bg-rose-500 px-4 py-2.5 text-[0.9rem] font-medium text-white transition-colors hover:bg-rose-600 disabled:opacity-60"
-              >
-                {deletingId === deleteTarget.id ? "Deleting..." : "Delete"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deletingId === deleteTarget.id}
-                className="flex-1 rounded-full border border-slate-900/10 px-4 py-2.5 text-[0.9rem] font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60"
-              >
-                Cancel
-              </button>
             </div>
           </div>
         </div>

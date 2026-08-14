@@ -83,6 +83,7 @@ export async function getAppointments(
           patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
           patientPhone: patients.phone,
           patientEmail: patients.email,
+          patientAge: patients.age,
           providerName: users.name,
           treatmentName: treatments.name,
           startTime: appointments.startTime,

@@ -346,7 +346,7 @@ export default function ServiceRecipePage() {
         return [
             { icon: BookOpen, label: "Total Services", value: String(services.length) },
             { icon: Check, label: "Configured", value: String(configured) },
-            { icon: AlertTriangle, label: "Needs Recipe", value: String(services.length - configured) },
+            { icon: AlertTriangle, label: "Needs Materials", value: String(services.length - configured) },
         ];
     }, [services, recipesMap]);
 
@@ -427,7 +427,7 @@ export default function ServiceRecipePage() {
                                 [
                                     { id: "all", label: "All Services" },
                                     { id: "configured", label: "Configured" },
-                                    { id: "not_configured", label: "Needs Recipe" },
+                                    { id: "not_configured", label: "Needs Materials" },
                                 ] as const
                             ).map((tab) => (
                                 <button

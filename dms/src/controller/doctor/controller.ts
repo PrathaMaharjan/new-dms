@@ -53,7 +53,7 @@ function getPgErrorCode(err: unknown): string | undefined {
 // to the caller's own org - the same two-part check used for Treatments.
 async function findOwnedDoctor(doctorId: string, orgId: string) {
   const rows = await db
-    .select({ id: users.id })
+    .select({ id: users.id, name: users.name, email: users.email })
     .from(users)
     .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
     .where(
@@ -150,7 +150,7 @@ export async function createDoctor(
         education: data.education,
         bio: data.bio,
         yearsOfExperience: data.yearsOfExperience,
-        dateOfBirth: data.dateOfBirth,
+        dateOfBirth: data.dateOfBirth ? data.dateOfBirth : null,
         bloodGroup: data.bloodGroup,
         gender: data.gender,
         address: data.address,
@@ -223,9 +223,18 @@ export type GetDoctorsResult =
         id: string;
         name: string;
         email: string;
+        phone: string | null;
         photoUrl: string | null;
         specialization: string | null;
+        qualification: string | null;
+        education: string | null;
+        bio: string | null;
         yearsOfExperience: number | null;
+        dateOfBirth: string | null;
+        bloodGroup: string | null;
+        gender: string | null;
+        address: string | null;
+        patientsCheckedUp?: number;
       }[];
       pagination: { total: number; limit: number; offset: number };
     }
@@ -265,9 +274,17 @@ export async function getDoctors(
           id: users.id,
           name: users.name,
           email: users.email,
+          phone: users.phone,
           photoUrl: providerProfiles.photoUrl,
           specialization: providerProfiles.specialization,
+          qualification: providerProfiles.qualification,
+          education: providerProfiles.education,
+          bio: providerProfiles.bio,
           yearsOfExperience: providerProfiles.yearsOfExperience,
+          dateOfBirth: providerProfiles.dateOfBirth,
+          bloodGroup: providerProfiles.bloodGroup,
+          gender: providerProfiles.gender,
+          address: providerProfiles.address,
         })
         .from(users)
         .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
@@ -328,7 +345,12 @@ export async function getDoctors(
 export type UpdateDoctorResult =
   | {
       success: true;
-      doctor: { id: string; };
+      doctor: {
+        id: string;
+        name?: string;
+        email?: string;
+        photoUrl?: string | null;
+      };
     }
   | { success: false; error: string; code: DoctorErrorCode };
 
@@ -371,7 +393,7 @@ export async function updateDoctor(doctorId: string, input: unknown): Promise<Up
       if (data.education !== undefined) profileUpdates.education = data.education;
       if (data.bio !== undefined) profileUpdates.bio = data.bio;
       if (data.yearsOfExperience !== undefined) profileUpdates.yearsOfExperience = data.yearsOfExperience;
-      if (data.dateOfBirth !== undefined) profileUpdates.dateOfBirth = data.dateOfBirth;
+      if (data.dateOfBirth !== undefined) profileUpdates.dateOfBirth = data.dateOfBirth ? data.dateOfBirth : null;
       if (data.bloodGroup !== undefined) profileUpdates.bloodGroup = data.bloodGroup;
       if (data.gender !== undefined) profileUpdates.gender = data.gender;
       if (data.address !== undefined) profileUpdates.address = data.address;
@@ -393,9 +415,9 @@ export async function updateDoctor(doctorId: string, input: unknown): Promise<Up
       success: true,
       doctor: {
         id: updatedUser.id,
-        // name: updatedUser.name,
-        // email: updatedUser.email,
-        // photoUrl: imagePresets.thumbnail(profile?.photoUrl ?? null),
+        name: updatedUser.name,
+        email: updatedUser.email,
+        photoUrl: imagePresets.thumbnail(profile?.photoUrl ?? null),
       },
     };
   } catch (err) {
@@ -630,6 +652,10 @@ export type GetDoctorResult =
         education: string | null;
         bio: string | null;
         yearsOfExperience: number | null;
+        dateOfBirth: string | null;
+        bloodGroup: string | null;
+        gender: string | null;
+        address: string | null;
         schedule: {
           dayOfWeek: number;
           // Nullable now - a day marked isOnLeave has no real hours stored.
@@ -659,6 +685,10 @@ export async function getDoctor(doctorId: string): Promise<GetDoctorResult> {
           education: providerProfiles.education,
           bio: providerProfiles.bio,
           yearsOfExperience: providerProfiles.yearsOfExperience,
+          dateOfBirth: providerProfiles.dateOfBirth,
+          bloodGroup: providerProfiles.bloodGroup,
+          gender: providerProfiles.gender,
+          address: providerProfiles.address,
         })
         .from(users)
         .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
