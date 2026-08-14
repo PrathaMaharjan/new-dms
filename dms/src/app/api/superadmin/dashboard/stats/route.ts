@@ -1,0 +1,11 @@
+import { getSuperAdminStats } from "@/controller/superadmin/dashboard/controller";
+import { NextResponse } from "next/server";
+
+export async function GET() {
+  const result = await getSuperAdminStats();
+
+  if (!result.success) {
+    return NextResponse.json({ success: false, error: result.error }, { status: result.code === "UNAUTHORIZED" ? 401 : 500 });
+  }
+  return NextResponse.json({ success: true, statusCode: 200, data: { stats: result.stats } });
+}
