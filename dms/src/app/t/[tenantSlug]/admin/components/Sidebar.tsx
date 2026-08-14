@@ -13,16 +13,21 @@ import {
   Wallet,
   Package,
   Wrench,
+  BarChart3,
+  Receipt,
+
 } from "lucide-react";
 
 const BASE_NAV_ITEMS = [
   { label: "Dashboard", href: "", icon: LayoutDashboard, exact: true },
+  { label: "Analytics", href: "/analytics", icon: BarChart3, exact: true },
   { label: "Appointments", href: "/appointments", icon: CalendarDays },
   { label: "Doctors", href: "/doctors", icon: Stethoscope },
   { label: "Patients", href: "/patients", icon: Users },
   { label: "Staffs", href: "/staffs", icon: Users },
   { label: "Treatments", href: "/treatments", icon: CalendarDays },
   { label: "Billing", href: "/billing", icon: Wallet },
+  { label: "Expenses", href: "/expenses", icon: Receipt },
   { label: "Inventory", href: "/inventory", icon: Package, requiresInventory: true },
   { label: "Service Material", href: "/material", icon: Wrench, requiresInventory: true },
   { label: "Settings", href: "/settings", icon: Settings },

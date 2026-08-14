@@ -31,6 +31,8 @@ import {
     X,
     Boxes,
     MapPin,
+    DollarSign,
+    FileText,
 } from "lucide-react";
 
 type StockLevel = "in_stock" | "low_stock" | "out_of_stock";
@@ -266,6 +268,8 @@ export default function InventoryPage() {
         quantity: "" as number | "",
         newQuantity: "" as number | "",
         note: "",
+        expenseAmount: "" as number | "",
+        expenseNote: "",
     });
 
     const [showDuplicateModal, setShowDuplicateModal] = useState(false);
@@ -483,7 +487,14 @@ export default function InventoryPage() {
 
     function openAdjust(m: Material) {
         setAdjustingMaterial(m);
-        setAdjustForm({ adjustType: "purchase", quantity: "", newQuantity: m.currentStock, note: "" });
+        setAdjustForm({
+            adjustType: "purchase",
+            quantity: "",
+            newQuantity: m.currentStock,
+            note: "",
+            expenseAmount: "",
+            expenseNote: "",
+        });
         setAdjustModalOpen(true);
     }
 
@@ -502,6 +513,9 @@ export default function InventoryPage() {
         const movementType = isPurchase ? "received" : "adjusted";
         const quantityToSend = isPurchase ? numericAmount : (newStock - adjustingMaterial.currentStock);
 
+        // NOTE: frontend-only for now — expenseAmount / expenseNote are captured in
+        // state and reflected in the movement history below, but are not sent to the
+        // server yet. Add them to this payload once the backend endpoint supports it.
         if (locId && quantityToSend !== 0 && !adjustingMaterial.id.startsWith("m")) {
             try {
                 await axios.post(`/api/inventory/item/${adjustingMaterial.id}/movement`, {
@@ -515,11 +529,19 @@ export default function InventoryPage() {
             }
         }
 
+        const expenseSuffix =
+            isPurchase && adjustForm.expenseAmount !== ""
+                ? ` (Rs. ${Number(adjustForm.expenseAmount).toLocaleString(undefined, { maximumFractionDigits: 2 })}${adjustForm.expenseNote.trim() ? ` — ${adjustForm.expenseNote.trim()}` : ""
+                })`
+                : "";
+
+        const combinedNote = `${adjustForm.note.trim()}${expenseSuffix}`.trim();
+
         const newMovement: Movement = {
             id: `mv-${Date.now()}`,
             type: isPurchase ? "purchase" : "adjustment",
             quantity: isPurchase ? numericAmount : Math.abs(newStock - adjustingMaterial.currentStock),
-            note: adjustForm.note.trim() || undefined,
+            note: combinedNote || undefined,
             createdAt: new Date().toISOString(),
             createdByName: "You",
         };
@@ -539,7 +561,14 @@ export default function InventoryPage() {
 
         setAdjustModalOpen(false);
         setAdjustingMaterial(null);
-        setAdjustForm({ adjustType: "purchase", quantity: "", newQuantity: "", note: "" });
+        setAdjustForm({
+            adjustType: "purchase",
+            quantity: "",
+            newQuantity: "",
+            note: "",
+            expenseAmount: "",
+            expenseNote: "",
+        });
     }
 
     const filtered = useMemo(() => {
@@ -1185,7 +1214,7 @@ export default function InventoryPage() {
                         className="absolute inset-0"
                         aria-hidden
                     />
-                    <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+                    <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
                         <h3 className="text-[1.05rem] font-semibold text-slate-900">Adjust Stock</h3>
                         <p className="mt-1 text-[0.8rem] text-slate-500">{adjustingMaterial.name}</p>
 
@@ -1270,6 +1299,57 @@ export default function InventoryPage() {
                                     className={inputClass}
                                 />
                             </label>
+
+                            {adjustForm.adjustType === "purchase" && (
+                                <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-4 space-y-3">
+                                    <p className="flex items-center gap-1.5 text-[0.75rem] font-semibold uppercase tracking-wide text-amber-700">
+                                        <DollarSign className="h-3.5 w-3.5" strokeWidth={2} />
+                                        Log as Expense
+                                    </p>
+                                    <label className="block">
+                                        <span className="mb-1.5 block text-[0.8rem] font-medium text-slate-600">
+                                            Expense amount
+                                        </span>
+                                        <div className="relative">
+                                            <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[0.9rem] font-medium text-slate-400">
+                                                Rs.
+                                            </span>
+                                            <input
+                                                type="number"
+                                                step="0.01"
+                                                min={0}
+                                                placeholder="0.00"
+                                                value={adjustForm.expenseAmount}
+                                                onChange={(e) =>
+                                                    setAdjustForm((p) => ({
+                                                        ...p,
+                                                        expenseAmount: e.target.value === "" ? "" : Number(e.target.value),
+                                                    }))
+                                                }
+                                                className="w-full rounded-xl border border-slate-900/10 bg-white py-2.5 pl-9 pr-3.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-[#7da3b3]"
+                                            />
+                                        </div>
+                                    </label>
+                                    <label className="block">
+                                        <span className="mb-1.5 block text-[0.8rem] font-medium text-slate-600">
+                                            Expense note
+                                        </span>
+                                        <div className="relative">
+                                            <FileText className="pointer-events-none absolute left-3.5 top-3 h-4 w-4 text-slate-400" strokeWidth={2} />
+                                            <textarea
+                                                rows={2}
+                                                placeholder="Vendor, invoice number, or other details..."
+                                                value={adjustForm.expenseNote}
+                                                onChange={(e) => setAdjustForm((p) => ({ ...p, expenseNote: e.target.value }))}
+                                                className="w-full resize-none rounded-xl border border-slate-900/10 bg-white py-2.5 pl-9 pr-3.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-[#7da3b3]"
+                                            />
+                                        </div>
+                                    </label>
+                                    <p className="text-[0.7rem] text-amber-700/70">
+                                        Logged locally for now — not yet sent to the server.
+                                    </p>
+                                </div>
+                            )}
 
                             <div className="flex items-center gap-3 pt-1">
                                 <button

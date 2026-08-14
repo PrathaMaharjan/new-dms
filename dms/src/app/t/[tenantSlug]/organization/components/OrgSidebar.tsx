@@ -15,10 +15,13 @@ import {
   Wrench,
   Stethoscope,
   Wallet,
+  Receipt,
+  BarChart3
 } from "lucide-react";
 
 const BASE_ORG_NAV_ITEMS = [
   { label: "Dashboard", href: "", icon: LayoutDashboard, exact: true },
+  { label: "Analytics", href: "/analytics", icon: BarChart3, exact: true },
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Staffs", href: "/staffs", icon: Users },
   { label: "Doctors", href: "/doctors", icon: Stethoscope },
@@ -28,6 +31,7 @@ const BASE_ORG_NAV_ITEMS = [
   { label: "Inventory", href: "/inventory", icon: Package, requiresInventory: true },
   { label: "Service Material", href: "/material", icon: Wrench, requiresInventory: true },
   { label: "Billing", href: "/billing", icon: Wallet },
+  { label: "Expenses", href: "/expenses", icon: Receipt },
   { label: " Settings", href: "/settings", icon: Settings },
 ];
 
