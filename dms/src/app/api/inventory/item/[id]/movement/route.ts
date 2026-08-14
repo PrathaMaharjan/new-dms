@@ -15,7 +15,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  console.log(id)
+  // console.log(id)
   const body = await request.json().catch(() => null);
   const result = await addInventoryMovement(body?.locationId, { ...body, itemId: id });
   if (!result.success) return NextResponse.json({ success: false, error: result.error }, { status: STATUS_BY_CODE[result.code] });

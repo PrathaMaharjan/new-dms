@@ -7,3 +7,4 @@ export * from "./billing";
 export * from "./clinical";
 export * from "./treatment";
 export * from "./inventory"
+export * from "./expenses"
