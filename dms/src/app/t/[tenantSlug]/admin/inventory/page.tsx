@@ -502,7 +502,7 @@ export default function InventoryPage() {
           note: adjustForm.note.trim() || undefined,
           ...(isPurchase
             ? {
-              totalCost: adjustForm.expenseAmount === "" ? undefined : Number(adjustForm.expenseAmount),
+              costCents: adjustForm.expenseAmount === "" ? undefined : Math.round(Number(adjustForm.expenseAmount) * 100),
               expenseNote: adjustForm.expenseNote.trim() || undefined,
             }
             : {}),

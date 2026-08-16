@@ -68,7 +68,7 @@ function Sidebar({ inventoryEnabled = true }: SidebarProps) {
   const displayTitle = formatTenantSlug(params.tenantSlug);
 
   return (
-    <aside className="sticky top-0 flex h-screen w-70 shrink-0 flex-col self-start bg-[#3f6274]  py-6">
+    <aside className="flex min-h-screen w-70 shrink-0 flex-col bg-[#3f6274]  py-6">
 
       {/* Brand */}
       <div className="flex flex-col gap-1 px-6">

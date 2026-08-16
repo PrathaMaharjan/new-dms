@@ -513,9 +513,6 @@ export default function InventoryPage() {
         const movementType = isPurchase ? "received" : "adjusted";
         const quantityToSend = isPurchase ? numericAmount : (newStock - adjustingMaterial.currentStock);
 
-        // NOTE: frontend-only for now — expenseAmount / expenseNote are captured in
-        // state and reflected in the movement history below, but are not sent to the
-        // server yet. Add them to this payload once the backend endpoint supports it.
         if (locId && quantityToSend !== 0 && !adjustingMaterial.id.startsWith("m")) {
             try {
                 await axios.post(`/api/inventory/item/${adjustingMaterial.id}/movement`, {
@@ -523,6 +520,8 @@ export default function InventoryPage() {
                     type: movementType,
                     quantity: quantityToSend,
                     note: adjustForm.note.trim() || undefined,
+                    costCents: isPurchase && adjustForm.expenseAmount !== "" ? Math.round(Number(adjustForm.expenseAmount) * 100) : undefined,
+                    expenseNote: isPurchase && adjustForm.expenseNote.trim() ? adjustForm.expenseNote.trim() : undefined,
                 });
             } catch (err) {
                 console.error("Failed to save movement on server:", err);
@@ -1345,9 +1344,6 @@ export default function InventoryPage() {
                                             />
                                         </div>
                                     </label>
-                                    <p className="text-[0.7rem] text-amber-700/70">
-                                        Logged locally for now — not yet sent to the server.
-                                    </p>
                                 </div>
                             )}
 
