@@ -556,3 +556,59 @@ export async function getBreakdown(
     };
   }
 }
+
+
+export type AllOwnerDashboardResult =
+  | {
+      success: true;
+      data: {
+        stats: OwnerDashboardStats;
+        chart: OwnerDashboardChartPoint[];
+        breakdown: { rows: BreakdownRow[]; pagination: { total: number; limit: number; offset: number } };
+      };
+    }
+  | { success: false; error: string };
+
+// Every panel on the owner dashboard, in ONE call - three genuinely
+// independent queries, run concurrently rather than as three separate
+// frontend requests. Same reasoning as every other getAll in this
+// project (doctor dashboard, front-desk dashboard, financial analytics).
+export async function getAllOwnerDashboard(
+  range: AnalyticsRange,
+  locationId?: string,
+  breakdownOffset: number = 0
+): Promise<AllOwnerDashboardResult> {
+  try {
+    await requireSession(); // fail fast, once, before running three queries for nothing
+
+    const [statsResult, chartResult, breakdownResult] = await Promise.all([
+      getOwnerDashboardStats(range, locationId),
+      getRevenueVsExpense(range, locationId),
+      getBreakdown(range, locationId, breakdownOffset),
+    ]);
+
+    const failures = [statsResult, chartResult, breakdownResult];
+    const firstFailure = failures.find((r) => !r.success);
+    if (firstFailure && !firstFailure.success) {
+      return { success: false, error: firstFailure.error };
+    }
+
+    return {
+      success: true,
+      data: {
+        stats: (statsResult as Extract<typeof statsResult, { success: true }>).stats,
+        chart: (chartResult as Extract<typeof chartResult, { success: true }>).chart,
+        breakdown: {
+          rows: (breakdownResult as Extract<typeof breakdownResult, { success: true }>).rows,
+          pagination: (breakdownResult as Extract<typeof breakdownResult, { success: true }>).pagination,
+        },
+      },
+    };
+  } catch (err) {
+    if (err instanceof SessionError) {
+      return { success: false, error: err.message };
+    }
+    console.error(err);
+    return { success: false, error: "Something went wrong loading the owner dashboard." };
+  }
+}
