@@ -312,6 +312,7 @@ export async function getUpNextAppointment(
           eq(appointments.locationId, locationId),
           gt(appointments.startTime, now),
           ne(appointments.status, "cancelled"),
+          ne(appointments.status, "requested"),
           ne(appointments.status, "completed"),
           ne(appointments.status, "no_show"),
         ),
@@ -384,6 +385,7 @@ export async function getTodaysSchedule(
           eq(appointments.locationId, locationId),
           gte(appointments.startTime, startOfDay(now)),
           lte(appointments.startTime, endOfDay(now)),
+          ne(appointments.status, "requested"),
         ),
       )
       .orderBy(appointments.startTime);

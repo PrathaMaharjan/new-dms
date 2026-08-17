@@ -509,7 +509,10 @@ export async function getAppointmentHistoryByDoctor(
 
     // Optional date range - lets a caller ask for "this doctor's appointments
     // this week" instead of always pulling their entire history.
-    const conditions = [eq(appointments.providerId, doctorId)];
+    const conditions = [
+      eq(appointments.providerId, doctorId),
+      ne(appointments.status, "requested"),
+    ];
     if (options?.from)
       conditions.push(gte(appointments.startTime, options.from));
     if (options?.to) conditions.push(lte(appointments.startTime, options.to));
@@ -974,6 +977,7 @@ export async function getAllDoctorsScheduleTimeline(
             and(
               inArray(appointments.providerId, doctorIds),
               ne(appointments.status, "cancelled"),
+              ne(appointments.status, "requested"),
               gt(appointments.startTime, dayStart),
               lt(appointments.startTime, dayEnd),
             ),

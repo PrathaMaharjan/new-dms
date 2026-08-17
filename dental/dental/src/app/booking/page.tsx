@@ -205,6 +205,17 @@ export default function BookingPage() {
                 {form.date ? `${form.date} ` : ""}appointment for{" "}
                 {form.service}.
               </p>
+
+              <div className="mt-6 flex items-start gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/70 p-4 text-left text-xs text-sky-900 max-w-md shadow-sm">
+                <Clock className="h-4 w-4 shrink-0 text-sky-600 mt-0.5" strokeWidth={2} />
+                <div>
+                  <span className="font-semibold block text-sky-950 text-[0.85rem] mb-0.5">Please Arrive 15–20 Minutes Early</span>
+                  <span className="text-slate-600 leading-relaxed block">
+                    To ensure smooth check-in and avoid missing your appointment slot, please plan to arrive at least 15 to 20 minutes prior to your scheduled time.
+                  </span>
+                </div>
+              </div>
+
               <button
                 onClick={() => setSubmitted(false)}
                 className="mt-8 text-[0.9rem] font-medium text-sky-700 underline-offset-4 hover:underline"
