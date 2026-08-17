@@ -6,6 +6,7 @@ import {
     ComposedChart,
     Area,
     Line,
+    LineChart,
     PieChart,
     Pie,
     Cell,
@@ -37,6 +38,7 @@ import {
 } from "lucide-react";
 
 type Timeframe = "6m" | "1y" | "all";
+type ChartView = "comparison" | "net";
 
 const ITEMS_PER_PAGE = 6;
 
@@ -52,6 +54,16 @@ const DEFAULT_CATEGORY_COLORS: Record<string, string> = {
 
 const PALETTE = ["#345263", "#7da3b3", "#e17a7a", "#c9a15a", "#8b5cf6", "#10b981", "#f59e0b", "#06b6d4", "#ec4899"];
 
+const CHART_VIEWS: { value: ChartView; label: string }[] = [
+    { value: "comparison", label: "Cost vs Revenue" },
+    { value: "net", label: "Net Position" },
+];
+
+// Net Position color — consistent yellow, matching across both charts
+const NET_COLOR = "#eab308";
+const PROFIT_COLOR = "#10b981";
+const LOSS_COLOR = "#e11d48";
+
 function getCategoryColor(categoryName: string, index: number): string {
     if (DEFAULT_CATEGORY_COLORS[categoryName]) {
         return DEFAULT_CATEGORY_COLORS[categoryName];
@@ -59,19 +71,23 @@ function getCategoryColor(categoryName: string, index: number): string {
     return PALETTE[index % PALETTE.length];
 }
 
+// Yellow dot on the Net Position line, with a small green/red triangle showing profit vs loss for that period
 function NetDot(props: any) {
     const { cx, cy, value } = props;
     if (cx == null || cy == null) return null;
     const positive = value >= 0;
     return (
-        <circle
-            cx={cx}
-            cy={cy}
-            r={4}
-            fill={positive ? "#10b981" : "#e17a7a"}
-            stroke="#ffffff"
-            strokeWidth={1.5}
-        />
+        <g>
+            <circle cx={cx} cy={cy} r={5} fill={NET_COLOR} stroke="#ffffff" strokeWidth={2} />
+            <path
+                d={
+                    positive
+                        ? `M${cx},${cy - 11} L${cx + 4},${cy - 4} L${cx - 4},${cy - 4} Z`
+                        : `M${cx},${cy + 11} L${cx + 4},${cy + 4} L${cx - 4},${cy + 4} Z`
+                }
+                fill={positive ? PROFIT_COLOR : LOSS_COLOR}
+            />
+        </g>
     );
 }
 
@@ -108,6 +124,7 @@ export default function ClinicCostAnalyticsPage() {
     const [timeframe, setTimeframe] = useState<Timeframe>("1y");
     const [tablePage, setTablePage] = useState(1);
     const [activeLocationId, setActiveLocationId] = useState<string>("");
+    const [chartView, setChartView] = useState<ChartView>("comparison");
 
     const [loading, setLoading] = useState(true);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -301,21 +318,59 @@ export default function ClinicCostAnalyticsPage() {
 
                         {/* Charts row */}
                         <div className="mt-8 grid gap-4 lg:grid-cols-3">
+                            {/* Chart Card — toggle between Cost vs Revenue and Net Position views */}
                             <div className="lg:col-span-2 rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm">
-                                <div className="mb-4 flex items-center gap-2">
-                                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7da3b3]/10 text-[#7da3b3]">
-                                        <BarChart3 className="h-4 w-4" strokeWidth={2} />
-                                    </span>
-                                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                                        Cost vs Revenue
-                                    </h3>
+                                <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7da3b3]/10 text-[#7da3b3]">
+                                            <BarChart3 className="h-4 w-4" strokeWidth={2} />
+                                        </span>
+                                        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                                            {chartView === "comparison" ? "Cost vs Revenue" : "Net Position"}
+                                        </h3>
+                                    </div>
+
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        {chartView === "net" && (
+                                            <div className="flex items-center gap-3 text-[0.7rem] font-medium text-slate-500">
+                                                <span className="flex items-center gap-1.5">
+                                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: NET_COLOR }} />
+                                                    Net Position
+                                                </span>
+                                                <span className="flex items-center gap-1.5">
+                                                    <TrendingUp className="h-3 w-3 text-emerald-500" strokeWidth={2.5} />
+                                                    Profit
+                                                </span>
+                                                <span className="flex items-center gap-1.5">
+                                                    <TrendingDown className="h-3 w-3 text-rose-500" strokeWidth={2.5} />
+                                                    Loss
+                                                </span>
+                                            </div>
+                                        )}
+
+                                        {/* View toggle */}
+                                        <div className="flex items-center gap-1 rounded-full border border-slate-900/10 bg-slate-50/60 p-1">
+                                            {CHART_VIEWS.map((v) => (
+                                                <button
+                                                    key={v.value}
+                                                    onClick={() => setChartView(v.value)}
+                                                    className={`rounded-full px-3 py-1.5 text-[0.72rem] font-semibold transition-all ${chartView === v.value
+                                                        ? "bg-[#3f6274] text-white shadow-sm"
+                                                        : "text-slate-500 hover:text-[#345263]"
+                                                        }`}
+                                                >
+                                                    {v.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="h-64">
                                     {trendData.length === 0 ? (
                                         <div className="flex h-full items-center justify-center text-sm text-slate-400">
                                             No trend data available for this range.
                                         </div>
-                                    ) : (
+                                    ) : chartView === "comparison" ? (
                                         <ResponsiveContainer width="100%" height="100%">
                                             <ComposedChart data={trendData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                                                 <defs>
@@ -350,17 +405,41 @@ export default function ClinicCostAnalyticsPage() {
                                                 <Legend wrapperStyle={{ fontSize: 11 }} />
                                                 <Area type="monotone" dataKey="Revenue" stroke="#345263" strokeWidth={2.5} fillOpacity={1} fill="url(#revenueColor)" activeDot={{ r: 6, fill: "#345263", stroke: "#fff", strokeWidth: 2 }} />
                                                 <Area type="monotone" dataKey="Cost" stroke="#e17a7a" strokeWidth={2.5} fillOpacity={1} fill="url(#costColor)" activeDot={{ r: 6, fill: "#e17a7a", stroke: "#fff", strokeWidth: 2 }} />
+                                            </ComposedChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <LineChart data={trendData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} axisLine={{ stroke: "#e2e8f0" }} tickLine={false} />
+                                                <YAxis
+                                                    tick={{ fontSize: 11, fill: "#64748b" }}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                                                />
+                                                <ReferenceLine y={0} stroke="#cbd5e1" />
+                                                <Tooltip
+                                                    formatter={(value, name) => [`NPR ${Number(value ?? 0).toLocaleString()}`, name]}
+                                                    contentStyle={{
+                                                        borderRadius: 14,
+                                                        border: "1px solid #cbd5e1",
+                                                        boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
+                                                        fontSize: 12,
+                                                        backgroundColor: "#ffffff",
+                                                    }}
+                                                />
+                                                {/* Net Position line — consistent yellow, with a per-point green/red triangle showing profit vs loss */}
                                                 <Line
                                                     type="monotone"
                                                     dataKey="Net"
                                                     name="Net Position"
-                                                    stroke="#345263"
-                                                    strokeWidth={2}
-                                                    strokeDasharray="4 3"
+                                                    stroke={NET_COLOR}
+                                                    strokeWidth={2.5}
                                                     dot={<NetDot />}
-                                                    activeDot={{ r: 6, fill: "#345263", stroke: "#fff", strokeWidth: 2 }}
+                                                    activeDot={{ r: 7, fill: NET_COLOR, stroke: "#fff", strokeWidth: 2 }}
                                                 />
-                                            </ComposedChart>
+                                            </LineChart>
                                         </ResponsiveContainer>
                                     )}
                                 </div>
@@ -481,6 +560,7 @@ export default function ClinicCostAnalyticsPage() {
                                     <tbody className="divide-y divide-slate-900/5">
                                         {monthlyRows.map((row) => {
                                             const net = row.netCents;
+                                            const isNetPositive = net >= 0;
                                             return (
                                                 <tr key={row.label} className="bg-white transition-colors hover:bg-[#7da3b3]/[0.06]">
                                                     <td className="px-4 py-3 font-semibold text-slate-800">{row.label}</td>
@@ -491,8 +571,15 @@ export default function ClinicCostAnalyticsPage() {
                                                         </td>
                                                     ))}
                                                     <td className="px-4 py-3 text-right font-semibold text-slate-700">NPR {centsToDisplay(row.totalCostCents)}</td>
-                                                    <td className={`px-4 py-3 text-right font-bold ${net >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                                                        NPR {centsToDisplay(net)}
+                                                    <td className={`px-4 py-3 text-right font-bold ${isNetPositive ? "text-emerald-600" : "text-rose-600"}`}>
+                                                        <span className="inline-flex items-center gap-1 justify-end">
+                                                            {isNetPositive ? (
+                                                                <TrendingUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                                            ) : (
+                                                                <TrendingDown className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                                            )}
+                                                            NPR {centsToDisplay(net)}
+                                                        </span>
                                                     </td>
                                                 </tr>
                                             );

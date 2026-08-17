@@ -357,7 +357,7 @@ export default function ServiceRecipePage() {
             <div className="sticky top-0 z-20 w-full bg-white px-6 py-6 lg:px-10">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                     <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#345263] sm:text-3xl">
-                        Service Recipes
+                        Service Materials
                     </h1>
 
                     <div className="relative">

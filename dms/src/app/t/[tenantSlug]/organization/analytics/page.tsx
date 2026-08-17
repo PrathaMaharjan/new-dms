@@ -19,11 +19,13 @@ import {
 import {
     BarChart,
     Bar,
+    Cell,
     XAxis,
     YAxis,
     CartesianGrid,
     Tooltip,
     Legend,
+    ReferenceLine,
     ResponsiveContainer,
 } from "recharts";
 
@@ -33,6 +35,7 @@ interface Outlet {
 }
 
 type Timeframe = "6m" | "1y" | "all";
+type ChartView = "comparison" | "net";
 
 interface BreakdownRow {
     label: string;
@@ -65,6 +68,16 @@ const TIMEFRAMES: { value: Timeframe; label: string }[] = [
     { value: "all", label: "All Time (Overall Business)" },
 ];
 
+const CHART_VIEWS: { value: ChartView; label: string }[] = [
+    { value: "comparison", label: "Revenue vs Expense" },
+    { value: "net", label: "Net Profit" },
+];
+
+// Net Profit bar is a consistent yellow; profit/loss is shown via a small arrow indicator instead of bar color
+const NET_COLOR = "#eab308";
+const PROFIT_COLOR = "#10b981";
+const LOSS_COLOR = "#e11d48";
+
 function centsToDisplay(cents: number) {
     const value = Number.isFinite(cents) ? cents : 0;
     return (value / 100).toLocaleString(undefined, {
@@ -73,11 +86,30 @@ function centsToDisplay(cents: number) {
     });
 }
 
+// Small triangle marker above/below the Net Profit bar showing profit (up, green) or loss (down, red)
+function NetProfitIndicator(props: any) {
+    const { x, y, width, value } = props;
+    if (x == null || y == null || width == null) return null;
+    const positive = value >= 0;
+    const cx = x + width / 2;
+    const cy = positive ? y - 8 : y + 8;
+    return (
+        <g transform={`translate(${cx}, ${cy})`}>
+            {positive ? (
+                <path d="M0,-5 L5,4 L-5,4 Z" fill={PROFIT_COLOR} />
+            ) : (
+                <path d="M0,5 L5,-4 L-5,-4 Z" fill={LOSS_COLOR} />
+            )}
+        </g>
+    );
+}
+
 export default function ProfitAndExpenseReport() {
     const [timeframe, setTimeframe] = useState<Timeframe>("1y");
     const [outlets, setOutlets] = useState<Outlet[]>([]);
     const [activeOutletId, setActiveOutletId] = useState<string>("all");
     const [outletDropdownOpen, setOutletDropdownOpen] = useState(false);
+    const [chartView, setChartView] = useState<ChartView>("comparison");
 
     const [tablePage, setTablePage] = useState(1);
     const [loading, setLoading] = useState(true);
@@ -365,7 +397,7 @@ export default function ProfitAndExpenseReport() {
                             </div>
                         </div>
 
-                        {/* Chart */}
+                        {/* Chart Card — toggle between Revenue vs Expense and Net Profit views */}
                         <div className="mt-8 rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm">
                             <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
                                 <div>
@@ -373,8 +405,46 @@ export default function ProfitAndExpenseReport() {
                                         Performance Overview
                                     </p>
                                     <h3 className="mt-1 text-base font-semibold text-slate-800">
-                                        Revenue vs Total Expense vs Net Profit
+                                        {chartView === "comparison" ? "Revenue vs Total Expense" : "Net Profit Over Time"}
                                     </h3>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-3">
+                                    {/* Legend, changes based on active view */}
+                                    <div className="flex items-center gap-3 text-[0.7rem] font-medium text-slate-500">
+                                        {chartView === "net" && (
+                                            <>
+                                                <span className="flex items-center gap-1.5">
+                                                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: NET_COLOR }} />
+                                                    Net Profit
+                                                </span>
+                                                <span className="flex items-center gap-1.5">
+                                                    <TrendingUp className="h-3 w-3 text-emerald-500" strokeWidth={2.5} />
+                                                    Profit
+                                                </span>
+                                                <span className="flex items-center gap-1.5">
+                                                    <TrendingDown className="h-3 w-3 text-rose-500" strokeWidth={2.5} />
+                                                    Loss
+                                                </span>
+                                            </>
+                                        )}
+                                    </div>
+
+                                    {/* View toggle */}
+                                    <div className="flex items-center gap-1 rounded-full border border-slate-900/10 bg-slate-50/60 p-1">
+                                        {CHART_VIEWS.map((v) => (
+                                            <button
+                                                key={v.value}
+                                                onClick={() => setChartView(v.value)}
+                                                className={`rounded-full px-3 py-1.5 text-[0.72rem] font-semibold transition-all ${chartView === v.value
+                                                    ? "bg-[#3f6274] text-white shadow-sm"
+                                                    : "text-slate-500 hover:text-[#345263]"
+                                                    }`}
+                                            >
+                                                {v.label}
+                                            </button>
+                                        ))}
+                                    </div>
                                 </div>
                             </div>
 
@@ -383,7 +453,7 @@ export default function ProfitAndExpenseReport() {
                                     <div className="flex h-full items-center justify-center text-sm text-slate-400">
                                         No chart data available for this range.
                                     </div>
-                                ) : (
+                                ) : chartView === "comparison" ? (
                                     <ResponsiveContainer width="100%" height="100%">
                                         <BarChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
@@ -399,6 +469,7 @@ export default function ProfitAndExpenseReport() {
                                                 tickLine={false}
                                                 tickFormatter={(v) => `${Math.round(v / 1000)}k`}
                                             />
+                                            <ReferenceLine y={0} stroke="#cbd5e1" strokeWidth={1} />
                                             <Tooltip
                                                 formatter={tooltipFormatter}
                                                 contentStyle={{
@@ -412,7 +483,43 @@ export default function ProfitAndExpenseReport() {
                                             <Legend wrapperStyle={{ fontSize: 12, paddingTop: 10 }} />
                                             <Bar dataKey="Revenue" fill="#7da3b3" radius={[4, 4, 0, 0]} maxBarSize={32} />
                                             <Bar dataKey="Expense" fill="#e17a7a" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                                            <Bar dataKey="Net Profit" fill="#345263" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                ) : (
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={chartData} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                            <XAxis
+                                                dataKey="label"
+                                                tick={{ fontSize: 11, fill: "#64748b" }}
+                                                axisLine={{ stroke: "#e2e8f0" }}
+                                                tickLine={false}
+                                            />
+                                            <YAxis
+                                                tick={{ fontSize: 11, fill: "#64748b" }}
+                                                axisLine={false}
+                                                tickLine={false}
+                                                tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                                            />
+                                            <ReferenceLine y={0} stroke="#cbd5e1" strokeWidth={1} />
+                                            <Tooltip
+                                                formatter={tooltipFormatter}
+                                                contentStyle={{
+                                                    borderRadius: 14,
+                                                    border: "1px solid #cbd5e1",
+                                                    boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
+                                                    fontSize: 12,
+                                                    backgroundColor: "#ffffff",
+                                                }}
+                                            />
+                                            {/* Net Profit bar — consistent yellow, with a small up/down arrow showing profit vs loss */}
+                                            <Bar
+                                                dataKey="Net Profit"
+                                                fill={NET_COLOR}
+                                                radius={[4, 4, 0, 0]}
+                                                maxBarSize={40}
+                                                label={<NetProfitIndicator />}
+                                            />
                                         </BarChart>
                                     </ResponsiveContainer>
                                 )}
@@ -492,7 +599,14 @@ export default function ProfitAndExpenseReport() {
                                                         className={`px-6 py-4 text-right text-[0.9rem] font-bold ${isRowProfitPositive ? "text-emerald-600" : "text-rose-600"
                                                             }`}
                                                     >
-                                                        Rs. {centsToDisplay(row.netProfitCents)}
+                                                        <span className="inline-flex items-center gap-1 justify-end">
+                                                            {isRowProfitPositive ? (
+                                                                <TrendingUp className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                                            ) : (
+                                                                <TrendingDown className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                                            )}
+                                                            Rs. {centsToDisplay(row.netProfitCents)}
+                                                        </span>
                                                     </td>
                                                 </tr>
                                             );

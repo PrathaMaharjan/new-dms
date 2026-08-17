@@ -42,10 +42,10 @@ export async function getOwnerDashboardStats(
     const rangeStart = getRangeStart(range);
 
     const revenueConditions = [
-      eq(patients.orgId, session.orgId),
+      eq(ledgerEntries.orgId, session.orgId),
       eq(ledgerEntries.type, "charge"),
     ];
-    if (locationId) revenueConditions.push(eq(patients.locationId, locationId));
+    if (locationId) revenueConditions.push(eq(ledgerEntries.locationId, locationId));
     if (rangeStart)
       revenueConditions.push(gte(ledgerEntries.createdAt, rangeStart));
 
@@ -75,7 +75,6 @@ export async function getOwnerDashboardStats(
           total: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int`,
         })
         .from(ledgerEntries)
-        .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
         .where(and(...revenueConditions)),
       db
         .select({
@@ -135,7 +134,19 @@ export async function getRevenueVsExpense(
 
     if (range === "6m") return buildMonthlyChart(session.orgId, 6, locationId);
     if (range === "1y") return buildMonthlyChart(session.orgId, 12, locationId);
-    return buildYearlyChart(session.orgId, locationId);
+
+    const org = await db.query.organizations.findFirst({
+      where: eq(organizations.id, session.orgId),
+    });
+    const now = new Date();
+    const orgStart = org ? org.createdAt : new Date(now.getFullYear(), 0, 1);
+    const months =
+      (now.getFullYear() - orgStart.getFullYear()) * 12 +
+      (now.getMonth() - orgStart.getMonth()) +
+      1;
+    const monthCount = Math.max(12, months);
+
+    return buildMonthlyChart(session.orgId, monthCount, locationId);
   } catch (err) {
     if (err instanceof SessionError) {
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
@@ -161,11 +172,11 @@ async function buildMonthlyChart(
   );
 
   const revenueConditions = [
-    eq(patients.orgId, orgId),
+    eq(ledgerEntries.orgId, orgId),
     eq(ledgerEntries.type, "charge"),
     gte(ledgerEntries.createdAt, rangeStart),
   ];
-  if (locationId) revenueConditions.push(eq(patients.locationId, locationId));
+  if (locationId) revenueConditions.push(eq(ledgerEntries.locationId, locationId));
 
   const expenseConditions = [
     eq(expenses.orgId, orgId),
@@ -191,7 +202,6 @@ async function buildMonthlyChart(
         total: sql<number>`sum(${ledgerEntries.amountCents})::int`,
       })
       .from(ledgerEntries)
-      .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
       .where(and(...revenueConditions))
       .groupBy(
         sql`extract(year from ${ledgerEntries.createdAt})`,
@@ -371,20 +381,38 @@ export async function getBreakdown(
 ): Promise<BreakdownResult> {
   try {
     const session = await requireSession();
-    const monthCount = range === "6m" ? 6 : 12; 
     const now = new Date();
-    const rangeStart = new Date(
-      now.getFullYear(),
-      now.getMonth() - (monthCount - 1),
-      1,
-    );
+    let monthCount: number;
+    let rangeStart: Date;
+
+    if (range === "6m") {
+      monthCount = 6;
+      rangeStart = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    } else if (range === "1y") {
+      monthCount = 12;
+      rangeStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+    } else {
+      const org = await db.query.organizations.findFirst({
+        where: eq(organizations.id, session.orgId),
+      });
+      const orgStart = org ? org.createdAt : new Date(now.getFullYear(), 0, 1);
+      rangeStart = new Date(orgStart.getFullYear(), orgStart.getMonth(), 1);
+      monthCount =
+        (now.getFullYear() - rangeStart.getFullYear()) * 12 +
+        (now.getMonth() - rangeStart.getMonth()) +
+        1;
+      if (monthCount < 12) {
+        monthCount = 12;
+        rangeStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      }
+    }
 
     const revenueConditions = [
-      eq(patients.orgId, session.orgId),
+      eq(ledgerEntries.orgId, session.orgId),
       eq(ledgerEntries.type, "charge"),
       gte(ledgerEntries.createdAt, rangeStart),
     ];
-    if (locationId) revenueConditions.push(eq(patients.locationId, locationId));
+    if (locationId) revenueConditions.push(eq(ledgerEntries.locationId, locationId));
     const manualExpenseConditions = [
       eq(expenses.orgId, session.orgId),
       isNull(expenses.deletedAt),
@@ -423,7 +451,6 @@ export async function getBreakdown(
           total: sql<number>`sum(${ledgerEntries.amountCents})::int`,
         })
         .from(ledgerEntries)
-        .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
         .where(and(...revenueConditions))
         .groupBy(
           sql`extract(year from ${ledgerEntries.createdAt})`,
