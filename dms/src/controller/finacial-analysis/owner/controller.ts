@@ -2,6 +2,7 @@ import { db } from "@/db";
 import { AnalyticsRange } from "../controller";
 import { and, eq, gte, isNotNull, isNull, sql } from "drizzle-orm";
 import {
+  appointments,
   expenses,
   inventoryMovements,
   ledgerEntries,
@@ -585,19 +586,154 @@ export async function getBreakdown(
 }
 
 
+export type OutletComparisonPoint = {
+  locationId: string;
+  outletName: string;
+  revenueCents: number;
+  expenseCents: number;
+  netProfitCents: number;
+  appointmentCount: number;
+};
+
+export type OutletComparisonResult =
+  | { success: true; outlets: OutletComparisonPoint[] }
+  | { success: false; error: string; code: OwnerDashboardErrorCode };
+
+export async function getOutletComparison(
+  range: AnalyticsRange,
+): Promise<OutletComparisonResult> {
+  try {
+    const session = await requireSession();
+    const rangeStart = getRangeStart(range);
+
+    const allLocations = await db
+      .select({ id: locations.id, name: locations.name })
+      .from(locations)
+      .where(eq(locations.orgId, session.orgId))
+      .orderBy(locations.name);
+
+    if (allLocations.length === 0) {
+      return { success: true, outlets: [] };
+    }
+
+    const revenueConditions = [
+      eq(ledgerEntries.orgId, session.orgId),
+      eq(ledgerEntries.type, "charge"),
+    ];
+    if (rangeStart)
+      revenueConditions.push(gte(ledgerEntries.createdAt, rangeStart));
+
+    const expenseConditions = [
+      eq(expenses.orgId, session.orgId),
+      isNull(expenses.deletedAt),
+    ];
+    if (rangeStart)
+      expenseConditions.push(
+        sql`${expenses.expenseDate} >= ${rangeStart.toISOString().slice(0, 10)}`,
+      );
+
+    const purchaseConditions = [
+      eq(locations.orgId, session.orgId),
+      eq(inventoryMovements.type, "received"),
+      isNotNull(inventoryMovements.costCents),
+    ];
+    if (rangeStart)
+      purchaseConditions.push(gte(inventoryMovements.createdAt, rangeStart));
+
+    const appointmentConditions = [
+      eq(locations.orgId, session.orgId),
+    ];
+    if (rangeStart)
+      appointmentConditions.push(gte(appointments.createdAt, rangeStart));
+
+    const [revenueRows, expenseRows, purchaseRows, appointmentRows] = await Promise.all([
+      db
+        .select({
+          locationId: ledgerEntries.locationId,
+          total: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int`,
+        })
+        .from(ledgerEntries)
+        .where(and(...revenueConditions))
+        .groupBy(ledgerEntries.locationId),
+      db
+        .select({
+          locationId: expenses.locationId,
+          total: sql<number>`coalesce(sum(${expenses.amountCents}), 0)::int`,
+        })
+        .from(expenses)
+        .where(and(...expenseConditions))
+        .groupBy(expenses.locationId),
+      db
+        .select({
+          locationId: inventoryMovements.locationId,
+          total: sql<number>`coalesce(sum(${inventoryMovements.costCents}), 0)::int`,
+        })
+        .from(inventoryMovements)
+        .innerJoin(locations, eq(inventoryMovements.locationId, locations.id))
+        .where(and(...purchaseConditions))
+        .groupBy(inventoryMovements.locationId),
+      db
+        .select({
+          locationId: appointments.locationId,
+          total: sql<number>`count(${appointments.id})::int`,
+        })
+        .from(appointments)
+        .innerJoin(locations, eq(appointments.locationId, locations.id))
+        .where(and(...appointmentConditions))
+        .groupBy(appointments.locationId),
+    ]);
+
+    const revByLoc = new Map(revenueRows.map((r) => [r.locationId, r.total]));
+    const expByLoc = new Map(expenseRows.map((r) => [r.locationId, r.total]));
+    const purByLoc = new Map(purchaseRows.map((r) => [r.locationId, r.total]));
+    const apptByLoc = new Map(appointmentRows.map((r) => [r.locationId, r.total]));
+
+    const outlets: OutletComparisonPoint[] = allLocations.map((loc) => {
+      const revenueCents = revByLoc.get(loc.id) ?? 0;
+      const expenseCents =
+        (expByLoc.get(loc.id) ?? 0) + (purByLoc.get(loc.id) ?? 0);
+      const netProfitCents = revenueCents - expenseCents;
+      const appointmentCount = apptByLoc.get(loc.id) ?? 0;
+      return {
+        locationId: loc.id,
+        outletName: loc.name,
+        revenueCents,
+        expenseCents,
+        netProfitCents,
+        appointmentCount,
+      };
+    });
+
+    outlets.sort((a, b) => b.netProfitCents - a.netProfitCents);
+
+    return { success: true, outlets };
+  } catch (err) {
+    if (err instanceof SessionError) {
+      return { success: false, error: err.message, code: "UNAUTHORIZED" };
+    }
+    console.error(err);
+    return {
+      success: false,
+      error: "Something went wrong loading outlet comparison.",
+      code: "SERVER_ERROR",
+    };
+  }
+}
+
 export type AllOwnerDashboardResult =
   | {
       success: true;
       data: {
         stats: OwnerDashboardStats;
         chart: OwnerDashboardChartPoint[];
+        outletsComparison: OutletComparisonPoint[];
         breakdown: { rows: BreakdownRow[]; pagination: { total: number; limit: number; offset: number } };
       };
     }
   | { success: false; error: string };
 
-// Every panel on the owner dashboard, in ONE call - three genuinely
-// independent queries, run concurrently rather than as three separate
+// Every panel on the owner dashboard, in ONE call - four genuinely
+// independent queries, run concurrently rather than as four separate
 // frontend requests. Same reasoning as every other getAll in this
 // project (doctor dashboard, front-desk dashboard, financial analytics).
 export async function getAllOwnerDashboard(
@@ -606,15 +742,16 @@ export async function getAllOwnerDashboard(
   breakdownOffset: number = 0
 ): Promise<AllOwnerDashboardResult> {
   try {
-    await requireSession(); // fail fast, once, before running three queries for nothing
+    await requireSession(); // fail fast, once, before running queries for nothing
 
-    const [statsResult, chartResult, breakdownResult] = await Promise.all([
+    const [statsResult, chartResult, outletCompResult, breakdownResult] = await Promise.all([
       getOwnerDashboardStats(range, locationId),
       getRevenueVsExpense(range, locationId),
+      getOutletComparison(range),
       getBreakdown(range, locationId, breakdownOffset),
     ]);
 
-    const failures = [statsResult, chartResult, breakdownResult];
+    const failures = [statsResult, chartResult, outletCompResult, breakdownResult];
     const firstFailure = failures.find((r) => !r.success);
     if (firstFailure && !firstFailure.success) {
       return { success: false, error: firstFailure.error };
@@ -625,6 +762,7 @@ export async function getAllOwnerDashboard(
       data: {
         stats: (statsResult as Extract<typeof statsResult, { success: true }>).stats,
         chart: (chartResult as Extract<typeof chartResult, { success: true }>).chart,
+        outletsComparison: (outletCompResult as Extract<typeof outletCompResult, { success: true }>).outlets ?? [],
         breakdown: {
           rows: (breakdownResult as Extract<typeof breakdownResult, { success: true }>).rows,
           pagination: (breakdownResult as Extract<typeof breakdownResult, { success: true }>).pagination,

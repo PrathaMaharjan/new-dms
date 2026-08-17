@@ -27,6 +27,8 @@ import {
     Legend,
     ReferenceLine,
     ResponsiveContainer,
+    PieChart,
+    Pie,
 } from "recharts";
 
 interface Outlet {
@@ -36,6 +38,27 @@ interface Outlet {
 
 type Timeframe = "6m" | "1y" | "all";
 type ChartView = "comparison" | "net";
+type OutletBreakdownMetric = "Revenue" | "Net Profit" | "Expense";
+
+interface OutletComparisonRow {
+    locationId: string;
+    outletName: string;
+    Revenue: number;
+    Expense: number;
+    "Net Profit": number;
+    appointmentCount: number;
+}
+
+const OUTLET_PALETTE = [
+    "#6366f1", // Indigo
+    "#10b981", // Emerald
+    "#f59e0b", // Amber
+    "#06b6d4", // Cyan
+    "#ec4899", // Pink
+    "#8b5cf6", // Purple
+    "#3b82f6", // Blue
+    "#f43f5e", // Rose
+];
 
 interface BreakdownRow {
     label: string;
@@ -110,6 +133,7 @@ export default function ProfitAndExpenseReport() {
     const [activeOutletId, setActiveOutletId] = useState<string>("all");
     const [outletDropdownOpen, setOutletDropdownOpen] = useState(false);
     const [chartView, setChartView] = useState<ChartView>("comparison");
+    const [breakdownMetric, setBreakdownMetric] = useState<OutletBreakdownMetric>("Revenue");
 
     const [tablePage, setTablePage] = useState(1);
     const [loading, setLoading] = useState(true);
@@ -122,8 +146,32 @@ export default function ProfitAndExpenseReport() {
         netProfitCents: 0,
     });
     const [chartData, setChartData] = useState<{ label: string; Revenue: number; Expense: number; "Net Profit": number }[]>([]);
+    const [outletComparisonData, setOutletComparisonData] = useState<OutletComparisonRow[]>([]);
     const [breakdownRows, setBreakdownRows] = useState<BreakdownRow[]>([]);
     const [totalBreakdownRows, setTotalBreakdownRows] = useState(0);
+
+    const totalMetricValue = useMemo(() => {
+        return outletComparisonData.reduce((acc, item) => {
+            const val = item["Net Profit"];
+            return acc + (val > 0 ? val : 0);
+        }, 0);
+    }, [outletComparisonData]);
+
+    const outletBreakdownItems = useMemo(() => {
+        return outletComparisonData.map((item, idx) => {
+            const rawVal = item["Net Profit"];
+            const val = Math.max(0, rawVal);
+            const percent = totalMetricValue > 0 ? (val / totalMetricValue) * 100 : 0;
+            const color = OUTLET_PALETTE[idx % OUTLET_PALETTE.length];
+            return {
+                ...item,
+                val: rawVal,
+                displayVal: val,
+                percent,
+                color,
+            };
+        });
+    }, [outletComparisonData, totalMetricValue]);
 
     const activeOutlet = outlets.find((o) => o.id === activeOutletId);
 
@@ -174,6 +222,18 @@ export default function ProfitAndExpenseReport() {
                             Revenue: (pt.revenueCents ?? 0) / 100,
                             Expense: (pt.expenseCents ?? 0) / 100,
                             "Net Profit": (pt.netCents ?? 0) / 100,
+                        }))
+                    );
+                }
+                if (Array.isArray(data.outletsComparison)) {
+                    setOutletComparisonData(
+                        data.outletsComparison.map((o: any) => ({
+                            locationId: o.locationId,
+                            outletName: o.outletName,
+                            Revenue: (o.revenueCents ?? 0) / 100,
+                            Expense: (o.expenseCents ?? 0) / 100,
+                            "Net Profit": (o.netProfitCents ?? 0) / 100,
+                            appointmentCount: o.appointmentCount ?? 0,
                         }))
                     );
                 }
@@ -525,6 +585,120 @@ export default function ProfitAndExpenseReport() {
                                 )}
                             </div>
                         </div>
+
+                        {/* Outlet Net Profit Breakdown Card */}
+                        {outletComparisonData.length > 0 && (
+                            <div className="mt-8 rounded-3xl border border-slate-900/5 bg-white p-8 shadow-sm">
+                                <div className="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-5">
+                                    <div>
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400">
+                                            Outlet Profit Share
+                                        </p>
+                                        <h3 className="mt-1 text-lg font-bold tracking-tight text-slate-800">
+                                            Net Profit Comparison Across Outlets
+                                        </h3>
+                                    </div>
+
+                                    {outletComparisonData.length > 0 && (
+                                        <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3.5 py-1.5 text-xs font-semibold text-emerald-800 shadow-sm">
+                                            <TrendingUp className="h-3.5 w-3.5 text-emerald-600" />
+                                            <span>Most Profitable: {outletComparisonData[0]?.outletName}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 items-center">
+                                    {/* Left: Donut Ring Chart */}
+                                    <div className="lg:col-span-5 flex flex-col items-center justify-center relative py-4">
+                                        <div className="relative h-64 w-64">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <PieChart>
+                                                    <Tooltip
+                                                        formatter={(v: any) => [`Rs. ${Number(v).toLocaleString()}`, "Net Profit"]}
+                                                        contentStyle={{
+                                                            borderRadius: 14,
+                                                            border: "1px solid #cbd5e1",
+                                                            boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)",
+                                                            fontSize: 12,
+                                                            backgroundColor: "#ffffff",
+                                                        }}
+                                                    />
+                                                    <Pie
+                                                        data={outletBreakdownItems}
+                                                        dataKey="displayVal"
+                                                        nameKey="outletName"
+                                                        cx="50%"
+                                                        cy="50%"
+                                                        innerRadius={70}
+                                                        outerRadius={95}
+                                                        paddingAngle={5}
+                                                        cornerRadius={6}
+                                                        stroke="none"
+                                                    >
+                                                        {outletBreakdownItems.map((entry) => (
+                                                            <Cell key={entry.outletName} fill={entry.color} />
+                                                        ))}
+                                                    </Pie>
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                            {/* Inner Total Display inside Donut */}
+                                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-center px-4">
+                                                <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                                                    Total Net Profit
+                                                </span>
+                                                <span className="mt-0.5 text-lg font-bold text-slate-900 truncate max-w-full">
+                                                    Rs. {centsToDisplay(totalMetricValue * 100)}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Right: Outlet Breakdown List with matching colored progress bars */}
+                                    <div className="lg:col-span-7 flex flex-col justify-center space-y-6">
+                                        <p className="text-xs font-extrabold uppercase tracking-widest text-slate-400">
+                                            NET PROFIT BREAKDOWN
+                                        </p>
+
+                                        <div className="space-y-5">
+                                            {outletBreakdownItems.map((item) => (
+                                                <div key={item.outletName} className="group">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-2.5">
+                                                            <span
+                                                                className="h-3 w-3 shrink-0 rounded-full shadow-xs"
+                                                                style={{ backgroundColor: item.color }}
+                                                            />
+                                                            <span className="font-bold text-slate-800 text-[0.92rem]">
+                                                                {item.outletName}
+                                                            </span>
+                                                        </div>
+                                                        <span className={`font-bold text-[0.95rem] ${item.val >= 0 ? "text-slate-900" : "text-rose-600"}`}>
+                                                            Rs. {centsToDisplay(item.val * 100)}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* Progress bar matching design screenshot */}
+                                                    <div className="mt-2 h-2.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                                                        <div
+                                                            className="h-full rounded-full transition-all duration-500"
+                                                            style={{
+                                                                width: `${Math.max(2, item.percent)}%`,
+                                                                backgroundColor: item.color,
+                                                            }}
+                                                        />
+                                                    </div>
+
+                                                    <div className="mt-1 flex items-center justify-between text-[0.75rem] text-slate-400 font-medium px-0.5">
+                                                        <span>{item.appointmentCount} appointments</span>
+                                                        <span>{item.percent.toFixed(1)}% of total profit</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
                         {/* Breakdown Table */}
                         <div className="mt-8 overflow-hidden rounded-2xl border border-slate-900/5 bg-white shadow-sm">
