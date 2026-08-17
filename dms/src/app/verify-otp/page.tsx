@@ -6,7 +6,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 import { ArrowRight, ArrowLeft, AlertCircle, KeyRound } from "lucide-react";
 
-export default function VerifyOTPPage() {
+import { Suspense } from "react";
+
+function VerifyOTPForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = searchParams.get("email") || "";
@@ -198,6 +200,14 @@ export default function VerifyOTPPage() {
         </p>
       </div>
     </section>
+  );
+}
+
+export default function VerifyOTPPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center text-slate-500 text-xs font-medium">Loading...</div>}>
+      <VerifyOTPForm />
+    </Suspense>
   );
 }
 

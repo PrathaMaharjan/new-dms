@@ -78,9 +78,9 @@ function computeSegmentsAndBreak(shiftStart: string, shiftEnd: string, appts: an
   for (const a of appts) {
     if (a.startTime && a.endTime) {
       const s = toMins(a.startTime);
-      const e = toMins(a.endTime);
-      if (s >= startMins && e <= endMins) {
-        busyList.push({ startMins: s, endMins: e, type: "booked" });
+      const e = toMins(a.endTime) + 30; // 30 min buffer time after appointment
+      if (s >= startMins && s <= endMins) {
+        busyList.push({ startMins: s, endMins: Math.min(e, endMins), type: "booked" });
       }
     }
   }

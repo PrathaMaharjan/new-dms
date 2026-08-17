@@ -48,6 +48,9 @@ export type BookAppointmentErrorCode =
   | "DOUBLE_BOOKED"
   | "SERVER_ERROR";
 
+const BUFFER_MINUTES = 30;
+const BUFFER_MS = BUFFER_MINUTES * 60_000;
+
 export type BookAppointmentResult =
   | {
     success: true;
@@ -205,8 +208,8 @@ async function findAvailableDoctor(
       and(
         inArray(appointments.providerId, candidateIds),
         ne(appointments.status, "cancelled"),
-        lt(appointments.startTime, endTime),
-        gt(appointments.endTime, startTime),
+        lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
+        gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
       ),
     );
 
@@ -328,8 +331,8 @@ export async function bookAppointment(
         where: and(
           eq(appointments.providerId, providerId),
           ne(appointments.status, "cancelled"),
-          lt(appointments.startTime, endTime),
-          gt(appointments.endTime, startTime),
+          lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
+          gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
         ),
       });
 
@@ -863,8 +866,8 @@ export async function reassignAppointmentDoctor(
         eq(appointments.providerId, newProviderId),
         ne(appointments.id, appointmentId),
         ne(appointments.status, "cancelled"),
-        lt(appointments.startTime, endTime),
-        gt(appointments.endTime, startTime),
+        lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
+        gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
       ),
     });
 
@@ -1174,8 +1177,8 @@ export async function assignAppointmentToPatient(
       where: and(
         eq(appointments.providerId, providerId),
         ne(appointments.status, "cancelled"),
-        lt(appointments.startTime, endTime),
-        gt(appointments.endTime, startTime),
+        lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
+        gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
       ),
     });
     if (conflict) {
@@ -1349,8 +1352,8 @@ export async function updateAppointment(
           eq(appointments.providerId, providerId),
           ne(appointments.id, appointmentId),
           ne(appointments.status, "cancelled"),
-          lt(appointments.startTime, endTime),
-          gt(appointments.endTime, startTime),
+          lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
+          gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
         ),
       });
       if (conflict) {

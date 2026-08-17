@@ -1014,11 +1014,14 @@ export async function getAllDoctorsScheduleTimeline(
 
       type Interval = { start: string; end: string; type: "booked" | "break" };
       const busy: Interval[] = [
-        ...bookings.map((a) => ({
-          start: a.startTime.toTimeString().slice(0, 5),
-          end: a.endTime.toTimeString().slice(0, 5),
-          type: "booked" as const,
-        })),
+        ...bookings.map((a) => {
+          const bufferedEnd = new Date(a.endTime.getTime() + 30 * 60_000);
+          return {
+            start: a.startTime.toTimeString().slice(0, 5),
+            end: bufferedEnd.toTimeString().slice(0, 5),
+            type: "booked" as const,
+          };
+        }),
         { ...breakWindow, type: "break" as const },
       ].sort((a, b) => a.start.localeCompare(b.start));
 

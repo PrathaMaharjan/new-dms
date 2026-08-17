@@ -17,8 +17,7 @@ export default async function AdminLayout({
 
   const role = await getPrimaryRoleForUser(session.userId);
 
-  // "manager" is the correct role for this folder now - "owner" has its
-  // own separate /organization folder instead of sharing this one.
+
   if (role !== "manager") {
     const ownFolder =
       role === "owner" ? "organization" : role === "clinical" ? "doctor" : role === "front_office" ? "frontdesk" : "";

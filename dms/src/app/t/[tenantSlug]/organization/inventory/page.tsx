@@ -513,6 +513,7 @@ export default function InventoryPage() {
         const movementType = isPurchase ? "received" : "adjusted";
         const quantityToSend = isPurchase ? numericAmount : (newStock - adjustingMaterial.currentStock);
 
+       
         if (locId && quantityToSend !== 0 && !adjustingMaterial.id.startsWith("m")) {
             try {
                 await axios.post(`/api/inventory/item/${adjustingMaterial.id}/movement`, {
