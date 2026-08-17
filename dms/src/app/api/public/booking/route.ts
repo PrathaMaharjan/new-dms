@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { appointments, locations, organizations, patients, treatments, users } from "@/db/schema";
+import {
+  appointments,
+  locations,
+  organizations,
+  patients,
+  treatments,
+  users,
+} from "@/db/schema";
 import { and, eq, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
+import { sendBookingRequestReceived } from "@/lib/email/sendBookingRequestReceived";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -34,8 +42,11 @@ export async function POST(request: NextRequest) {
 
     if (!parsed.success) {
       return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || "Invalid booking data" },
-        { status: 400, headers: corsHeaders }
+        {
+          success: false,
+          error: parsed.error.issues[0]?.message || "Invalid booking data",
+        },
+        { status: 400, headers: corsHeaders },
       );
     }
 
@@ -44,21 +55,31 @@ export async function POST(request: NextRequest) {
     // 1. Resolve Location & Organization
     let location = null;
     if (data.locationId) {
-      location = await db.query.locations.findFirst({ where: eq(locations.id, data.locationId) });
+      location = await db.query.locations.findFirst({
+        where: eq(locations.id, data.locationId),
+      });
     }
 
     if (!location && data.tenantSlug) {
-      const org = await db.query.organizations.findFirst({ where: eq(organizations.slug, data.tenantSlug) });
+      const org = await db.query.organizations.findFirst({
+        where: eq(organizations.slug, data.tenantSlug),
+      });
       if (org) {
-        location = await db.query.locations.findFirst({ where: eq(locations.orgId, org.id) });
+        location = await db.query.locations.findFirst({
+          where: eq(locations.orgId, org.id),
+        });
       }
     }
 
     if (!location) {
       // Default to Sunrise Dental Group location if available, otherwise first location
-      const sunriseOrg = await db.query.organizations.findFirst({ where: eq(organizations.slug, "sunrise-dental-group") });
+      const sunriseOrg = await db.query.organizations.findFirst({
+        where: eq(organizations.slug, "sunrise-dental-group"),
+      });
       if (sunriseOrg) {
-        location = await db.query.locations.findFirst({ where: eq(locations.orgId, sunriseOrg.id) });
+        location = await db.query.locations.findFirst({
+          where: eq(locations.orgId, sunriseOrg.id),
+        });
       }
     }
 
@@ -68,8 +89,11 @@ export async function POST(request: NextRequest) {
 
     if (!location) {
       return NextResponse.json(
-        { success: false, error: "No clinic location found to receive bookings." },
-        { status: 400, headers: corsHeaders }
+        {
+          success: false,
+          error: "No clinic location found to receive bookings.",
+        },
+        { status: 400, headers: corsHeaders },
       );
     }
 
@@ -78,7 +102,7 @@ export async function POST(request: NextRequest) {
       ? await db.query.treatments.findFirst({
           where: and(
             eq(treatments.locationId, location.id),
-            ilike(treatments.name, data.serviceName.trim())
+            ilike(treatments.name, data.serviceName.trim()),
           ),
         })
       : null;
@@ -120,7 +144,7 @@ export async function POST(request: NextRequest) {
           where: and(
             eq(users.orgId, location.orgId),
             ilike(users.name, data.dentistName!.trim()),
-            isNull(users.deletedAt)
+            isNull(users.deletedAt),
           ),
         })
       : null;
@@ -133,8 +157,11 @@ export async function POST(request: NextRequest) {
 
     if (!provider) {
       return NextResponse.json(
-        { success: false, error: "No doctor found at this clinic to assign booking." },
-        { status: 400, headers: corsHeaders }
+        {
+          success: false,
+          error: "No doctor found at this clinic to assign booking.",
+        },
+        { status: 400, headers: corsHeaders },
       );
     }
 
@@ -143,9 +170,10 @@ export async function POST(request: NextRequest) {
     const [firstName, ...rest] = trimmedName.split(" ");
     const lastName = rest.join(" ") || "-";
 
-    const identifierMatch = data.email && data.email.trim() !== ""
-      ? or(eq(patients.phone, data.phone), eq(patients.email, data.email))
-      : eq(patients.phone, data.phone);
+    const identifierMatch =
+      data.email && data.email.trim() !== ""
+        ? or(eq(patients.phone, data.phone), eq(patients.email, data.email))
+        : eq(patients.phone, data.phone);
 
     let patient = await db.query.patients.findFirst({
       where: and(eq(patients.orgId, location.orgId), identifierMatch),
@@ -182,7 +210,9 @@ export async function POST(request: NextRequest) {
     }
 
     // 5. Parse Start Time & End Time
-    const startTime = new Date(`${data.preferredDate}T${data.preferredTime}:00`);
+    const startTime = new Date(
+      `${data.preferredDate}T${data.preferredTime}:00`,
+    );
     const durationMs = (treatment.durationMinutes || 30) * 60_000;
     const endTime = new Date(startTime.getTime() + durationMs);
 
@@ -195,13 +225,37 @@ export async function POST(request: NextRequest) {
         providerId: provider.id,
         treatmentId: treatment.id,
         startTime: isNaN(startTime.getTime()) ? new Date() : startTime,
-        endTime: isNaN(endTime.getTime()) ? new Date(Date.now() + durationMs) : endTime,
+        endTime: isNaN(endTime.getTime())
+          ? new Date(Date.now() + durationMs)
+          : endTime,
         status: "requested",
         source: "online_booking",
-        notes: data.notes || `Online booking for ${data.serviceName || treatment.name}`,
+        notes:
+          data.notes ||
+          `Online booking for ${data.serviceName || treatment.name}`,
       })
       .returning();
 
+    if (data.email && data.email.trim() !== "") {
+      try {
+        const org = await db.query.organizations.findFirst({
+          where: eq(organizations.id, location.orgId),
+        });
+        await sendBookingRequestReceived(
+          data.email,
+          trimmedName,
+          treatment.name,
+          data.preferredDate,
+          data.preferredTime,
+          org?.name ?? "Your Clinic",
+        );
+      } catch (emailErr) {
+        console.error(
+          "Booking saved, but confirmation email failed to send:",
+          emailErr,
+        );
+      }
+    }
     return NextResponse.json(
       {
         success: true,
@@ -212,13 +266,13 @@ export async function POST(request: NextRequest) {
           locationId: location.id,
         },
       },
-      { status: 201, headers: corsHeaders }
+      { status: 201, headers: corsHeaders },
     );
   } catch (error: unknown) {
     console.error("Public booking error:", error);
     return NextResponse.json(
       { success: false, error: "Failed to book appointment." },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: corsHeaders },
     );
   }
 }
