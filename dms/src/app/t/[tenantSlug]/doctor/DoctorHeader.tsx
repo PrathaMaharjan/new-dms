@@ -4,9 +4,9 @@ import { useState } from "react";
 
 import { useParams, useRouter } from "next/navigation";
 import axios from "axios";
-import { CalendarDays, Clock, Users, LogOut, Settings } from "lucide-react";
+import { CalendarDays, Clock, Users, LogOut, Settings, Wallet } from "lucide-react";
 
-export type DoctorTabType = "dashboard" | "schedule" | "appointments" | "patients" | "settings";
+export type DoctorTabType = "dashboard" | "schedule" | "appointments" | "patients" | "settings" | "myEarning";
 
 interface DoctorHeaderProps {
   activeTab: DoctorTabType;
@@ -34,10 +34,6 @@ export default function DoctorHeader({
     tenantSlug ? formatSlug(tenantSlug) : "Clinic Management"
   );
   const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-
-
-
 
   const handleLogout = async () => {
     if (isLoggingOut) return;
@@ -125,6 +121,16 @@ export default function DoctorHeader({
         >
           <Clock className="h-3.5 w-3.5" />
           My Availability
+        </button>
+        <button
+          onClick={() => setActiveTab("myEarning")}
+          className={`flex shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-full px-4 py-2.5 text-xs font-semibold transition-all duration-200 sm:flex-1 ${activeTab === "myEarning"
+              ? "bg-[#7da3b3] text-white shadow-sm"
+              : "text-slate-600 hover:bg-slate-200/60 hover:text-slate-900"
+            }`}
+        >
+          <Wallet className="h-3.5 w-3.5" />
+          My Earnings
         </button>
         <button
           onClick={() => setActiveTab("settings")}

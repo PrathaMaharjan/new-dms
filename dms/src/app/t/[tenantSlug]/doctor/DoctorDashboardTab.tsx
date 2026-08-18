@@ -36,6 +36,7 @@ import {
     Receipt,
     TrendingDown,
 } from "lucide-react";
+import CommissionStatCard from "./componets/commsion";
 
 const STATUS_COLORS: Record<string, string> = {
     Confirmed: "#7da3b3",
@@ -244,8 +245,8 @@ export default function DoctorDashboardTab({
                 ) : (
                     <>
                         {/* Stats Cards */}
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                            <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
+                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+                                <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
                                 <div className="flex items-center justify-between">
                                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                                         Appointments Today
@@ -259,7 +260,7 @@ export default function DoctorDashboardTab({
                                 </p>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
+                               <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
                                 <div className="flex items-center justify-between">
                                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                                         Completed Today
@@ -271,7 +272,7 @@ export default function DoctorDashboardTab({
                                 <p className="mt-2 text-2xl font-bold text-slate-900">{stats.completedToday}</p>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
+                               <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
                                 <div className="flex items-center justify-between">
                                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                                         Upcoming This Week
@@ -283,7 +284,7 @@ export default function DoctorDashboardTab({
                                 <p className="mt-2 text-2xl font-bold text-slate-900">{stats.upcomingThisWeek}</p>
                             </div>
 
-                            <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
+                                <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
                                 <div className="flex items-center justify-between">
                                     <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
                                         Active Patients
@@ -294,6 +295,8 @@ export default function DoctorDashboardTab({
                                 </div>
                                 <p className="mt-2 text-2xl font-bold text-slate-900">{stats.activePatients}</p>
                             </div>
+                            
+                            <CommissionStatCard/>
                         </div>
 
                         {/* Charts Row */}
