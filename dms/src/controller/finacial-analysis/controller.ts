@@ -1,5 +1,7 @@
 import { db } from "@/db";
 import {
+  appointments,
+  doctorCommissions,
   expenseCategories,
   expenses,
   inventoryMovements,
@@ -36,102 +38,154 @@ function getRangeStart(range: AnalyticsRange): Date | null {
   return null;
 }
 
-export async function getFinancialSummary(
-  range: AnalyticsRange,
-  locationId?: string,
-): Promise<FinancialSummaryResult> {
+// export async function getFinancialSummary(
+//   range: AnalyticsRange,
+//   locationId?: string,
+// ): Promise<FinancialSummaryResult> {
+//   try {
+//     const session = await requireSession();
+//     const rangeStart = getRangeStart(range);
+//     // ---------- Revenue: charge-type ledger entries ----------
+//     const revenueConditions = [
+//       eq(patients.orgId, session.orgId),
+//       eq(ledgerEntries.type, "charge"),
+//     ];
+//     if (locationId) revenueConditions.push(eq(patients.locationId, locationId));
+//     if (rangeStart)
+//       revenueConditions.push(gte(ledgerEntries.createdAt, rangeStart));
+
+//     // ---------- Cost, part 1: real expenses ----------
+//     const expenseConditions = [
+//       eq(expenses.orgId, session.orgId),
+//       isNull(expenses.deletedAt),
+//     ];
+//     if (locationId) expenseConditions.push(eq(expenses.locationId, locationId));
+//     if (rangeStart)
+//       expenseConditions.push(
+//         sql`${expenses.expenseDate} >= ${rangeStart.toISOString().slice(0, 10)}`,
+//       );
+
+//     // ---------- Cost, part 2: inventory purchases with a real cost ----------
+//     const purchaseConditions = [
+//       eq(locations.orgId, session.orgId),
+//       eq(inventoryMovements.type, "received"),
+//       isNotNull(inventoryMovements.costCents),
+//     ];
+//     if (locationId)
+//       purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
+//     if (rangeStart)
+//       purchaseConditions.push(gte(inventoryMovements.createdAt, rangeStart));
+
+//     const [revenueResult, expenseResult, purchaseResult] = await Promise.all([
+//       db
+//         .select({
+//           total: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int`,
+//         })
+//         .from(ledgerEntries)
+//         .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
+//         .where(and(...revenueConditions)),
+//       db
+//         .select({
+//           total: sql<number>`coalesce(sum(${expenses.amountCents}), 0)::int`,
+//         })
+//         .from(expenses)
+//         .where(and(...expenseConditions)),
+//       db
+//         .select({
+//           total: sql<number>`coalesce(sum(${inventoryMovements.costCents}), 0)::int`,
+//         })
+//         .from(inventoryMovements)
+//         .innerJoin(locations, eq(inventoryMovements.locationId, locations.id))
+//         .where(and(...purchaseConditions)),
+//     ]);
+//     const totalRevenueCents = revenueResult[0]?.total ?? 0;
+//     const totalCostCents =
+//       (expenseResult[0]?.total ?? 0) + (purchaseResult[0]?.total ?? 0);
+//     const netPositionCents = totalRevenueCents - totalCostCents;
+
+//     // Guard against division by zero for a brand-new org with no revenue
+//     // yet - 0% is the honest answer, not NaN, same pattern used for
+//     // collectionRatePercent in getAdminBillingStats.
+//     const costRatioPercent =
+//       totalRevenueCents > 0
+//         ? Math.round((totalCostCents / totalRevenueCents) * 1000) / 10
+//         : 0;
+
+//     return {
+//       success: true,
+//       summary: {
+//         totalCostCents,
+//         totalRevenueCents,
+//         netPositionCents,
+//         costRatioPercent,
+//       },
+//     };
+//   } catch (err) {
+//     if (err instanceof SessionError) {
+//       return { success: false, error: err.message, code: "UNAUTHORIZED" };
+//     }
+//     console.error(err);
+//     return {
+//       success: false,
+//       error: "Something went wrong loading the financial summary.",
+//       code: "SERVER_ERROR",
+//     };
+//   }
+// }
+
+// revenuse caost chart data
+
+export async function getFinancialSummary(range: AnalyticsRange, locationId?: string): Promise<FinancialSummaryResult> {
   try {
     const session = await requireSession();
     const rangeStart = getRangeStart(range);
-    // ---------- Revenue: charge-type ledger entries ----------
-    const revenueConditions = [
-      eq(patients.orgId, session.orgId),
-      eq(ledgerEntries.type, "charge"),
-    ];
+
+    const revenueConditions = [eq(patients.orgId, session.orgId), eq(ledgerEntries.type, "charge")];
     if (locationId) revenueConditions.push(eq(patients.locationId, locationId));
-    if (rangeStart)
-      revenueConditions.push(gte(ledgerEntries.createdAt, rangeStart));
+    if (rangeStart) revenueConditions.push(gte(ledgerEntries.createdAt, rangeStart));
 
-    // ---------- Cost, part 1: real expenses ----------
-    const expenseConditions = [
-      eq(expenses.orgId, session.orgId),
-      isNull(expenses.deletedAt),
-    ];
+    const expenseConditions = [eq(expenses.orgId, session.orgId), isNull(expenses.deletedAt)];
     if (locationId) expenseConditions.push(eq(expenses.locationId, locationId));
-    if (rangeStart)
-      expenseConditions.push(
-        sql`${expenses.expenseDate} >= ${rangeStart.toISOString().slice(0, 10)}`,
-      );
+    if (rangeStart) expenseConditions.push(sql`${expenses.expenseDate} >= ${rangeStart.toISOString().slice(0, 10)}`);
 
-    // ---------- Cost, part 2: inventory purchases with a real cost ----------
-    const purchaseConditions = [
-      eq(locations.orgId, session.orgId),
-      eq(inventoryMovements.type, "received"),
-      isNotNull(inventoryMovements.costCents),
-    ];
-    if (locationId)
-      purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
-    if (rangeStart)
-      purchaseConditions.push(gte(inventoryMovements.createdAt, rangeStart));
+    const purchaseConditions = [eq(locations.orgId, session.orgId), eq(inventoryMovements.type, "received"), isNotNull(inventoryMovements.costCents)];
+    if (locationId) purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
+    if (rangeStart) purchaseConditions.push(gte(inventoryMovements.createdAt, rangeStart));
 
-    const [revenueResult, expenseResult, purchaseResult] = await Promise.all([
+    // ADDED - commission joins through appointments to reach org/location,
+    // same reasoning as the inventory purchase join above.
+    const commissionConditions = [eq(locations.orgId, session.orgId)];
+    if (locationId) commissionConditions.push(eq(appointments.locationId, locationId));
+    if (rangeStart) commissionConditions.push(gte(doctorCommissions.createdAt, rangeStart));
+
+    const [revenueResult, expenseResult, purchaseResult, commissionResult] = await Promise.all([
+      db.select({ total: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int` }).from(ledgerEntries).innerJoin(patients, eq(ledgerEntries.patientId, patients.id)).where(and(...revenueConditions)),
+      db.select({ total: sql<number>`coalesce(sum(${expenses.amountCents}), 0)::int` }).from(expenses).where(and(...expenseConditions)),
+      db.select({ total: sql<number>`coalesce(sum(${inventoryMovements.costCents}), 0)::int` }).from(inventoryMovements).innerJoin(locations, eq(inventoryMovements.locationId, locations.id)).where(and(...purchaseConditions)),
       db
-        .select({
-          total: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int`,
-        })
-        .from(ledgerEntries)
-        .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
-        .where(and(...revenueConditions)),
-      db
-        .select({
-          total: sql<number>`coalesce(sum(${expenses.amountCents}), 0)::int`,
-        })
-        .from(expenses)
-        .where(and(...expenseConditions)),
-      db
-        .select({
-          total: sql<number>`coalesce(sum(${inventoryMovements.costCents}), 0)::int`,
-        })
-        .from(inventoryMovements)
-        .innerJoin(locations, eq(inventoryMovements.locationId, locations.id))
-        .where(and(...purchaseConditions)),
+        .select({ total: sql<number>`coalesce(sum(${doctorCommissions.commissionAmountCents}), 0)::int` })
+        .from(doctorCommissions)
+        .innerJoin(appointments, eq(doctorCommissions.appointmentId, appointments.id))
+        .innerJoin(locations, eq(appointments.locationId, locations.id))
+        .where(and(...commissionConditions)),
     ]);
+
     const totalRevenueCents = revenueResult[0]?.total ?? 0;
-    const totalCostCents =
-      (expenseResult[0]?.total ?? 0) + (purchaseResult[0]?.total ?? 0);
+    // CHANGED - now sums three sources, not two
+    const totalCostCents = (expenseResult[0]?.total ?? 0) + (purchaseResult[0]?.total ?? 0) + (commissionResult[0]?.total ?? 0);
     const netPositionCents = totalRevenueCents - totalCostCents;
 
-    // Guard against division by zero for a brand-new org with no revenue
-    // yet - 0% is the honest answer, not NaN, same pattern used for
-    // collectionRatePercent in getAdminBillingStats.
-    const costRatioPercent =
-      totalRevenueCents > 0
-        ? Math.round((totalCostCents / totalRevenueCents) * 1000) / 10
-        : 0;
+    const costRatioPercent = totalRevenueCents > 0 ? Math.round((totalCostCents / totalRevenueCents) * 1000) / 10 : 0;
 
-    return {
-      success: true,
-      summary: {
-        totalCostCents,
-        totalRevenueCents,
-        netPositionCents,
-        costRatioPercent,
-      },
-    };
+    return { success: true, summary: { totalCostCents, totalRevenueCents, netPositionCents, costRatioPercent } };
   } catch (err) {
     if (err instanceof SessionError) {
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     console.error(err);
-    return {
-      success: false,
-      error: "Something went wrong loading the financial summary.",
-      code: "SERVER_ERROR",
-    };
+    return { success: false, error: "Something went wrong loading the financial summary.", code: "SERVER_ERROR" };
   }
 }
-
-// revenuse caost chart data
 
 export type CostRevenueTrendResult =
   | {
@@ -142,121 +196,80 @@ export type CostRevenueTrendResult =
 
 export async function getCostRevenueTrend(
   range: AnalyticsRange,
-  locationId?: string,
+  locationId?: string
 ): Promise<CostRevenueTrendResult> {
   try {
     const session = await requireSession();
-    console.log("range : ", range);
 
-    if (range === "6m")
-      return getMonthlyCostRevenue(session.orgId, 6, locationId);
-    if (range === "1y")
-      return getMonthlyCostRevenue(session.orgId, 12, locationId);
+    if (range === "6m") return getMonthlyCostRevenue(session.orgId, 6, locationId);
+    if (range === "1y") return getMonthlyCostRevenue(session.orgId, 12, locationId);
     return getYearlyCostRevenue(session.orgId, locationId);
   } catch (err) {
     if (err instanceof SessionError) {
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     console.error(err);
-    return {
-      success: false,
-      error: "Something went wrong loading the cost/revenue trend.",
-      code: "SERVER_ERROR",
-    };
+    return { success: false, error: "Something went wrong loading the cost/revenue trend.", code: "SERVER_ERROR" };
   }
-}
 
-async function getMonthlyCostRevenue(
-  orgId: string,
-  monthCount: number,
-  locationId?: string,
-): Promise<CostRevenueTrendResult> {
+async function getMonthlyCostRevenue(orgId: string, monthCount: number, locationId?: string): Promise<CostRevenueTrendResult> {
   const now = new Date();
-  const rangeStart = new Date(
-    now.getFullYear(),
-    now.getMonth() - (monthCount - 1),
-    1,
-  );
+  const rangeStart = new Date(now.getFullYear(), now.getMonth() - (monthCount - 1), 1);
 
-  const revenueConditions = [
-    eq(patients.orgId, orgId),
-    eq(ledgerEntries.type, "charge"),
-    gte(ledgerEntries.createdAt, rangeStart),
-  ];
+  const revenueConditions = [eq(patients.orgId, orgId), eq(ledgerEntries.type, "charge"), gte(ledgerEntries.createdAt, rangeStart)];
   if (locationId) revenueConditions.push(eq(patients.locationId, locationId));
 
-  const expenseConditions = [
-    eq(expenses.orgId, orgId),
-    isNull(expenses.deletedAt),
-    sql`${expenses.expenseDate} >= ${rangeStart.toISOString().slice(0, 10)}`,
-  ];
+  const expenseConditions = [eq(expenses.orgId, orgId), isNull(expenses.deletedAt), sql`${expenses.expenseDate} >= ${rangeStart.toISOString().slice(0, 10)}`];
   if (locationId) expenseConditions.push(eq(expenses.locationId, locationId));
 
-  const purchaseConditions = [
-    eq(locations.orgId, orgId),
-    eq(inventoryMovements.type, "received"),
-    isNotNull(inventoryMovements.costCents),
-    gte(inventoryMovements.createdAt, rangeStart),
-  ];
-  if (locationId)
-    purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
-  const [revenueRows, expenseRows, purchaseRows] = await Promise.all([
+  const purchaseConditions = [eq(locations.orgId, orgId), eq(inventoryMovements.type, "received"), isNotNull(inventoryMovements.costCents), gte(inventoryMovements.createdAt, rangeStart)];
+  if (locationId) purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
+
+  // ADDED - commission joins through appointments to reach org/location,
+  // same join shape already used for the purchase query above.
+  const commissionConditions = [eq(locations.orgId, orgId), gte(doctorCommissions.createdAt, rangeStart)];
+  if (locationId) commissionConditions.push(eq(appointments.locationId, locationId));
+
+  const [revenueRows, expenseRows, purchaseRows, commissionRows] = await Promise.all([
     db
-      .select({
-        year: sql<number>`extract(year from ${ledgerEntries.createdAt})::int`,
-        month: sql<number>`extract(month from ${ledgerEntries.createdAt})::int`,
-        total: sql<number>`sum(${ledgerEntries.amountCents})::int`,
-      })
+      .select({ year: sql<number>`extract(year from ${ledgerEntries.createdAt})::int`, month: sql<number>`extract(month from ${ledgerEntries.createdAt})::int`, total: sql<number>`sum(${ledgerEntries.amountCents})::int` })
       .from(ledgerEntries)
       .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
       .where(and(...revenueConditions))
-      .groupBy(
-        sql`extract(year from ${ledgerEntries.createdAt})`,
-        sql`extract(month from ${ledgerEntries.createdAt})`,
-      ),
+      .groupBy(sql`extract(year from ${ledgerEntries.createdAt})`, sql`extract(month from ${ledgerEntries.createdAt})`),
     db
-      .select({
-        year: sql<number>`extract(year from ${expenses.expenseDate})::int`,
-        month: sql<number>`extract(month from ${expenses.expenseDate})::int`,
-        total: sql<number>`sum(${expenses.amountCents})::int`,
-      })
+      .select({ year: sql<number>`extract(year from ${expenses.expenseDate})::int`, month: sql<number>`extract(month from ${expenses.expenseDate})::int`, total: sql<number>`sum(${expenses.amountCents})::int` })
       .from(expenses)
       .where(and(...expenseConditions))
-      .groupBy(
-        sql`extract(year from ${expenses.expenseDate})`,
-        sql`extract(month from ${expenses.expenseDate})`,
-      ),
+      .groupBy(sql`extract(year from ${expenses.expenseDate})`, sql`extract(month from ${expenses.expenseDate})`),
     db
-      .select({
-        year: sql<number>`extract(year from ${inventoryMovements.createdAt})::int`,
-        month: sql<number>`extract(month from ${inventoryMovements.createdAt})::int`,
-        total: sql<number>`sum(${inventoryMovements.costCents})::int`,
-      })
+      .select({ year: sql<number>`extract(year from ${inventoryMovements.createdAt})::int`, month: sql<number>`extract(month from ${inventoryMovements.createdAt})::int`, total: sql<number>`sum(${inventoryMovements.costCents})::int` })
       .from(inventoryMovements)
       .innerJoin(locations, eq(inventoryMovements.locationId, locations.id))
       .where(and(...purchaseConditions))
-      .groupBy(
-        sql`extract(year from ${inventoryMovements.createdAt})`,
-        sql`extract(month from ${inventoryMovements.createdAt})`,
-      ),
+      .groupBy(sql`extract(year from ${inventoryMovements.createdAt})`, sql`extract(month from ${inventoryMovements.createdAt})`),
+    // ADDED
+    db
+      .select({ year: sql<number>`extract(year from ${doctorCommissions.createdAt})::int`, month: sql<number>`extract(month from ${doctorCommissions.createdAt})::int`, total: sql<number>`sum(${doctorCommissions.commissionAmountCents})::int` })
+      .from(doctorCommissions)
+      .innerJoin(appointments, eq(doctorCommissions.appointmentId, appointments.id))
+      .innerJoin(locations, eq(appointments.locationId, locations.id))
+      .where(and(...commissionConditions))
+      .groupBy(sql`extract(year from ${doctorCommissions.createdAt})`, sql`extract(month from ${doctorCommissions.createdAt})`),
   ]);
 
-  const revenueByKey = new Map(
-    revenueRows.map((r) => [`${r.year}-${r.month}`, r.total]),
-  );
-  const expenseByKey = new Map(
-    expenseRows.map((r) => [`${r.year}-${r.month}`, r.total]),
-  );
-  const purchaseByKey = new Map(
-    purchaseRows.map((r) => [`${r.year}-${r.month}`, r.total]),
-  );
+  const revenueByKey = new Map(revenueRows.map((r) => [`${r.year}-${r.month}`, r.total]));
+  const expenseByKey = new Map(expenseRows.map((r) => [`${r.year}-${r.month}`, r.total]));
+  const purchaseByKey = new Map(purchaseRows.map((r) => [`${r.year}-${r.month}`, r.total]));
+  const commissionByKey = new Map(commissionRows.map((r) => [`${r.year}-${r.month}`, r.total])); // ADDED
 
   const trend = Array.from({ length: monthCount }, (_, i) => {
     const d = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + i, 1);
     const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
     return {
       label: d.toLocaleDateString("en-US", { month: "short", year: "2-digit" }),
-      costCents: (expenseByKey.get(key) ?? 0) + (purchaseByKey.get(key) ?? 0),
+      // CHANGED - third term added
+      costCents: (expenseByKey.get(key) ?? 0) + (purchaseByKey.get(key) ?? 0) + (commissionByKey.get(key) ?? 0),
       revenueCents: revenueByKey.get(key) ?? 0,
     };
   });
@@ -266,90 +279,74 @@ async function getMonthlyCostRevenue(
 
 // ---------- overall - one point per calendar year, since the org was created ----------
 
-async function getYearlyCostRevenue(
-  orgId: string,
-  locationId?: string,
-): Promise<CostRevenueTrendResult> {
-  const org = await db.query.organizations.findFirst({
-    where: eq(organizations.id, orgId),
-  });
+async function getYearlyCostRevenue(orgId: string, locationId?: string): Promise<CostRevenueTrendResult> {
+  const org = await db.query.organizations.findFirst({ where: eq(organizations.id, orgId) });
   if (!org) {
-    return {
-      success: false,
-      error: "Organization not found.",
-      code: "SERVER_ERROR",
-    };
+    return { success: false, error: "Organization not found.", code: "SERVER_ERROR" };
   }
 
   const startYear = org.createdAt.getFullYear();
   const currentYear = new Date().getFullYear();
 
-  const revenueConditions = [
-    eq(patients.orgId, orgId),
-    eq(ledgerEntries.type, "charge"),
-  ];
+  const revenueConditions = [eq(patients.orgId, orgId), eq(ledgerEntries.type, "charge")];
   if (locationId) revenueConditions.push(eq(patients.locationId, locationId));
 
-  const expenseConditions = [
-    eq(expenses.orgId, orgId),
-    isNull(expenses.deletedAt),
-  ];
+  const expenseConditions = [eq(expenses.orgId, orgId), isNull(expenses.deletedAt)];
   if (locationId) expenseConditions.push(eq(expenses.locationId, locationId));
 
-  const purchaseConditions = [
-    eq(locations.orgId, orgId),
-    eq(inventoryMovements.type, "received"),
-    isNotNull(inventoryMovements.costCents),
-  ];
-  if (locationId)
-    purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
+  const purchaseConditions = [eq(locations.orgId, orgId), eq(inventoryMovements.type, "received"), isNotNull(inventoryMovements.costCents)];
+  if (locationId) purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
 
-  const [revenueRows, expenseRows, purchaseRows] = await Promise.all([
+  // ADDED
+  const commissionConditions = [eq(locations.orgId, orgId)];
+  if (locationId) commissionConditions.push(eq(appointments.locationId, locationId));
+
+  const [revenueRows, expenseRows, purchaseRows, commissionRows] = await Promise.all([
     db
-      .select({
-        year: sql<number>`extract(year from ${ledgerEntries.createdAt})::int`,
-        total: sql<number>`sum(${ledgerEntries.amountCents})::int`,
-      })
+      .select({ year: sql<number>`extract(year from ${ledgerEntries.createdAt})::int`, total: sql<number>`sum(${ledgerEntries.amountCents})::int` })
       .from(ledgerEntries)
       .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
       .where(and(...revenueConditions))
       .groupBy(sql`extract(year from ${ledgerEntries.createdAt})`),
     db
-      .select({
-        year: sql<number>`extract(year from ${expenses.expenseDate})::int`,
-        total: sql<number>`sum(${expenses.amountCents})::int`,
-      })
+      .select({ year: sql<number>`extract(year from ${expenses.expenseDate})::int`, total: sql<number>`sum(${expenses.amountCents})::int` })
       .from(expenses)
       .where(and(...expenseConditions))
       .groupBy(sql`extract(year from ${expenses.expenseDate})`),
     db
-      .select({
-        year: sql<number>`extract(year from ${inventoryMovements.createdAt})::int`,
-        total: sql<number>`sum(${inventoryMovements.costCents})::int`,
-      })
+      .select({ year: sql<number>`extract(year from ${inventoryMovements.createdAt})::int`, total: sql<number>`sum(${inventoryMovements.costCents})::int` })
       .from(inventoryMovements)
       .innerJoin(locations, eq(inventoryMovements.locationId, locations.id))
       .where(and(...purchaseConditions))
       .groupBy(sql`extract(year from ${inventoryMovements.createdAt})`),
+    // ADDED
+    db
+      .select({ year: sql<number>`extract(year from ${doctorCommissions.createdAt})::int`, total: sql<number>`sum(${doctorCommissions.commissionAmountCents})::int` })
+      .from(doctorCommissions)
+      .innerJoin(appointments, eq(doctorCommissions.appointmentId, appointments.id))
+      .innerJoin(locations, eq(appointments.locationId, locations.id))
+      .where(and(...commissionConditions))
+      .groupBy(sql`extract(year from ${doctorCommissions.createdAt})`),
   ]);
 
   const revenueByYear = new Map(revenueRows.map((r) => [r.year, r.total]));
   const expenseByYear = new Map(expenseRows.map((r) => [r.year, r.total]));
   const purchaseByYear = new Map(purchaseRows.map((r) => [r.year, r.total]));
+  const commissionByYear = new Map(commissionRows.map((r) => [r.year, r.total])); // ADDED
 
   const trend = [];
   for (let year = startYear; year <= currentYear; year++) {
     trend.push({
       label: String(year),
-      costCents:
-        (expenseByYear.get(year) ?? 0) + (purchaseByYear.get(year) ?? 0),
+      // CHANGED - third term added
+      costCents: (expenseByYear.get(year) ?? 0) + (purchaseByYear.get(year) ?? 0) + (commissionByYear.get(year) ?? 0),
       revenueCents: revenueByYear.get(year) ?? 0,
     });
   }
 
   return { success: true, trend };
 }
-
+}
 // cost by category ==========
 export type CostByCategoryResult =
   | { success: true; breakdown: { categoryName: string; costCents: number }[] }
@@ -700,3 +697,5 @@ export type AllFinancialAnalyticsResult =
     return { success: false, error: "Something went wrong loading financial analytics." };
   }
 }
+
+
