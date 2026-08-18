@@ -352,59 +352,40 @@ export type CostByCategoryResult =
   | { success: true; breakdown: { categoryName: string; costCents: number }[] }
   | { success: false; error: string; code: FinancialAnalyticsErrorCode };
 
-export async function getCostByCategory(
-  locationId?: string,
-): Promise<CostByCategoryResult> {
+export async function getCostByCategory(range: AnalyticsRange, locationId?: string): Promise<CostByCategoryResult> {
   try {
     const session = await requireSession();
+    const rangeStart = getRangeStart(range);
 
-    const expenseConditions = [
-      eq(expenses.orgId, session.orgId),
-      isNull(expenses.deletedAt),
-    ];
+    const expenseConditions = [eq(expenses.orgId, session.orgId), isNull(expenses.deletedAt)];
     if (locationId) expenseConditions.push(eq(expenses.locationId, locationId));
+    if (rangeStart) expenseConditions.push(sql`${expenses.expenseDate} >= ${rangeStart.toISOString().slice(0, 10)}`);
 
-    const purchaseConditions = [
-      eq(locations.orgId, session.orgId),
-      eq(inventoryMovements.type, "received"),
-      isNotNull(inventoryMovements.costCents),
-    ];
-    if (locationId)
-      purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
-    const [expenseRows, purchaseTotal] = await Promise.all([
+    const purchaseConditions = [eq(locations.orgId, session.orgId), eq(inventoryMovements.type, "received"), isNotNull(inventoryMovements.costCents)];
+    if (locationId) purchaseConditions.push(eq(inventoryMovements.locationId, locationId));
+    if (rangeStart) purchaseConditions.push(gte(inventoryMovements.createdAt, rangeStart));
+
+    // ADDED
+    const commissionConditions = [eq(locations.orgId, session.orgId)];
+    if (locationId) commissionConditions.push(eq(appointments.locationId, locationId));
+    if (rangeStart) commissionConditions.push(gte(doctorCommissions.createdAt, rangeStart));
+
+    const [expenseRows, purchaseTotal, commissionTotal] = await Promise.all([
+      db.select({ categoryName: expenseCategories.name, total: sql<number>`sum(${expenses.amountCents})::int` }).from(expenses).innerJoin(expenseCategories, eq(expenses.categoryId, expenseCategories.id)).where(and(...expenseConditions)).groupBy(expenseCategories.name),
+      db.select({ total: sql<number>`coalesce(sum(${inventoryMovements.costCents}), 0)::int` }).from(inventoryMovements).innerJoin(locations, eq(inventoryMovements.locationId, locations.id)).where(and(...purchaseConditions)),
+      // ADDED
       db
-        .select({
-          categoryName: expenseCategories.name,
-          total: sql<number>`sum(${expenses.amountCents})::int`,
-        })
-        .from(expenses)
-        .innerJoin(
-          expenseCategories,
-          eq(expenses.categoryId, expenseCategories.id),
-        )
-        .where(and(...expenseConditions))
-        .groupBy(expenseCategories.name),
-      db
-        .select({
-          total: sql<number>`coalesce(sum(${inventoryMovements.costCents}), 0)::int`,
-        })
-        .from(inventoryMovements)
-        .innerJoin(locations, eq(inventoryMovements.locationId, locations.id))
-        .where(and(...purchaseConditions)),
+        .select({ total: sql<number>`coalesce(sum(${doctorCommissions.commissionAmountCents}), 0)::int` })
+        .from(doctorCommissions)
+        .innerJoin(appointments, eq(doctorCommissions.appointmentId, appointments.id))
+        .innerJoin(locations, eq(appointments.locationId, locations.id))
+        .where(and(...commissionConditions)),
     ]);
 
-    const breakdown = [
-      ...expenseRows.map((e) => ({
-        categoryName: e.categoryName,
-        costCents: e.total,
-      })),
-    ];
-    if (purchaseTotal[0]?.total > 0) {
-      breakdown.push({
-        categoryName: "Inventory",
-        costCents: purchaseTotal[0].total,
-      });
-    }
+    const breakdown = [...expenseRows.map((e) => ({ categoryName: e.categoryName, costCents: e.total }))];
+    if (purchaseTotal[0]?.total > 0) breakdown.push({ categoryName: "Inventory", costCents: purchaseTotal[0].total });
+    // ADDED - commission gets its own visible slice, not folded into anything else
+    if (commissionTotal[0]?.total > 0) breakdown.push({ categoryName: "Doctor Commission", costCents: commissionTotal[0].total });
 
     return { success: true, breakdown };
   } catch (err) {
@@ -412,11 +393,7 @@ export async function getCostByCategory(
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     console.error(err);
-    return {
-      success: false,
-      error: "Something went wrong loading cost by category.",
-      code: "SERVER_ERROR",
-    };
+    return { success: false, error: "Something went wrong loading cost by category.", code: "SERVER_ERROR" };
   }
 }
 
