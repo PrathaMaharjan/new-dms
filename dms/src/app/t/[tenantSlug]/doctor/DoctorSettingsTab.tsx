@@ -121,6 +121,22 @@ function pickField(raw: any, ...keys: string[]): string {
   return "";
 }
 
+function calculateAgeFromDob(dob?: string | null): string {
+  if (!dob) return "";
+  const birthDate = new Date(dob);
+  if (isNaN(birthDate.getTime())) return "";
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDelta = today.getMonth() - birthDate.getMonth();
+
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+
+  return age >= 0 ? String(age) : "";
+}
+
 function FieldLabel({ icon, children }: { icon?: React.ReactNode; children: React.ReactNode }) {
   return (
     <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
@@ -177,6 +193,7 @@ export default function DoctorSettingsTab() {
       if (u || d) {
         const rawDob = pickField(d, "dateOfBirth", "dob", "date_of_birth");
         const formattedDob = rawDob ? rawDob.split("T")[0] : "";
+        const computedAge = d?.age || calculateAgeFromDob(rawDob);
         setProfile({
           name: u?.name || d?.name || "",
           email: u?.email || d?.email || "",
@@ -186,7 +203,7 @@ export default function DoctorSettingsTab() {
           qualification: d?.qualification || "",
           imageUrl: u?.photoUrl || d?.photoUrl || "",
           doctorId: doctorId || d?.id || u?.id || "",
-          age: d?.age || "",
+          age: String(computedAge || ""),
           bloodGroup: d?.bloodGroup || BLOOD_GROUPS[0],
           gender: d?.gender || GENDERS[0],
           dob: formattedDob,
@@ -208,7 +225,26 @@ export default function DoctorSettingsTab() {
   }, [loadProfile]);
 
   function update<K extends keyof ProfileForm>(key: K, value: string) {
-    setProfile((prev) => ({ ...prev, [key]: value }));
+    setProfile((prev) => {
+      const updated = { ...prev, [key]: value };
+      if (key === "dob") {
+        updated.age = calculateAgeFromDob(value);
+      } else if (key === "age") {
+        if (value && !isNaN(Number(value))) {
+          const numAge = Number(value);
+          if (numAge > 0 && numAge < 120) {
+            const currentYear = new Date().getFullYear();
+            const birthYear = currentYear - numAge;
+            if (!prev.dob || new Date(prev.dob).getFullYear() !== birthYear) {
+              updated.dob = `${birthYear}-01-01`;
+            }
+          }
+        } else if (!value) {
+          updated.dob = "";
+        }
+      }
+      return updated;
+    });
   }
 
   async function handleAvatarPick(e: React.ChangeEvent<HTMLInputElement>) {

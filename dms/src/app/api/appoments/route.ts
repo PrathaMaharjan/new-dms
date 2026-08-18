@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
   }
 
   const result = await getAppointments(locationId, {
+    doctorId: sp.get("doctorId") ?? undefined,
     status: sp.get("status") ?? undefined,
     date: sp.get("date") ?? undefined,
     limit: sp.has("limit") ? Number(sp.get("limit")) : undefined,

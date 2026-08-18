@@ -183,6 +183,13 @@ export default function DoctorAppointmentsTab() {
 
 
       let currentLocId = locationId;
+      let myUserId: string | null = null;
+
+      const userRes = await axios.get("/api/user-details").catch(() => null);
+      if (userRes?.data?.success && userRes.data.data?.user?.id) {
+        myUserId = userRes.data.data.user.id;
+      }
+
       if (!currentLocId) {
         const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
           axios.get("/api/services").catch(() => null),
@@ -206,7 +213,10 @@ export default function DoctorAppointmentsTab() {
       if (currentLocId) {
 
         const apptsRes = await axios.get("/api/appoments", {
-          params: { locationId: currentLocId },
+          params: {
+            locationId: currentLocId,
+            ...(myUserId ? { doctorId: myUserId } : {}),
+          },
         });
 
         if (apptsRes.data?.success && apptsRes.data.data.appointments) {

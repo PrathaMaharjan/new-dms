@@ -668,13 +668,6 @@ export default function DoctorsPage() {
       trend: "Decreased by 6%",
       trendUp: false,
     },
-    {
-      icon: Star,
-      label: "Average Rating",
-      value: avgRating.toFixed(1),
-      trend: "Increased by 4%",
-      trendUp: true,
-    },
   ];
 
   const formatDOB = (dobStr?: string) => {
@@ -865,13 +858,7 @@ export default function DoctorsPage() {
                       {doc.experience} years experience
                     </div>
 
-                    <div className="mt-4 flex items-center justify-between border-t border-slate-900/5 pt-4">
-                      <div className="flex items-center gap-1">
-                        <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-                        <span className="text-[0.85rem] font-medium text-slate-700">
-                          {doc.rating.toFixed(1)}
-                        </span>
-                      </div>
+                    <div className="mt-4 flex items-center justify-end border-t border-slate-900/5 pt-4">
                       <p className="text-[0.8rem] text-slate-500">{doc.patients} patients</p>
                     </div>
                   </div>
@@ -1322,21 +1309,6 @@ export default function DoctorsPage() {
                     <span>{selectedDoctor.specialization}</span>
                     <span className="text-slate-300">|</span>
                     <span>{selectedDoctor.experience} years experience</span>
-                    <span className="text-slate-300">|</span>
-                    <span className="inline-flex items-center gap-1">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Star
-                          key={i}
-                          className={`h-3.5 w-3.5 ${i < Math.round(selectedDoctor.rating)
-                            ? "fill-amber-400 text-amber-400"
-                            : "fill-slate-200 text-slate-200"
-                            }`}
-                        />
-                      ))}
-                      <span className="ml-1 font-medium text-slate-700">
-                        {selectedDoctor.rating.toFixed(1)}
-                      </span>
-                    </span>
                   </div>
 
                   <div className="mt-3 space-y-1 text-[0.85rem] text-slate-600">

@@ -925,7 +925,7 @@ const MAX_LIMIT = 100;
 
 export async function getAppointments(
   locationId: string,
-  options?: { status?: string; date?: string; limit?: number; offset?: number },
+  options?: { doctorId?: string; status?: string; date?: string; limit?: number; offset?: number },
 ): Promise<GetAppointmentsResult> {
   try {
     const session = await requireSession();
@@ -945,6 +945,9 @@ export async function getAppointments(
       eq(locations.orgId, session.orgId),
       ne(appointments.status, "requested"),
     ];
+    if (options?.doctorId) {
+      conditions.push(eq(appointments.providerId, options.doctorId));
+    }
     if (options?.status && isAppointmentStatus(options.status)) {
       conditions.push(eq(appointments.status, options.status));
     }

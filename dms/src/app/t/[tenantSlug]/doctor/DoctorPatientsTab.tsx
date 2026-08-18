@@ -173,12 +173,23 @@ export default function DoctorPatientsTab() {
         currentLocId = patientsRes.data.data.patients[0].locationId;
       }
 
+      let myUserId: string | null = null;
+      const userRes = await axios.get("/api/user-details").catch(() => null);
+      if (userRes?.data?.success && userRes.data.data?.user?.id) {
+        myUserId = userRes.data.data.user.id;
+      }
+
       const patientApptsMap: Record<string, any[]> = {};
       const patientNameApptsMap: Record<string, any[]> = {};
 
       if (currentLocId) {
         const apptsRes = await axios
-          .get("/api/appoments", { params: { locationId: currentLocId } })
+          .get("/api/appoments", {
+            params: {
+              locationId: currentLocId,
+              ...(myUserId ? { doctorId: myUserId } : {}),
+            },
+          })
           .catch(() => null);
 
         if (apptsRes?.data?.success && apptsRes.data.data.appointments) {
