@@ -1,19 +1,73 @@
 import { db } from "@/db";
-import { appointments, ledgerEntries, patients, treatments } from "@/db/schema";
+import {
+  appointments,
+  commissionExperienceTiers,
+  doctorCommissions,
+  ledgerEntries,
+  patients,
+  providerProfiles,
+  treatmentCommissionRates,
+  treatments,
+} from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { addLedgerEntrySchema } from "@/lib/validators/billing";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 
-type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
+type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function recordDoctorCommission(
+  tx: Transaction,
+  charge: { id: string; appointmentId: string; amountCents: number },
+) {
+  const appointment = await tx.query.appointments.findFirst({
+    where: eq(appointments.id, charge.appointmentId),
+  });
+  if (!appointment) return;
+
+  const doctorProfile = await tx.query.providerProfiles.findFirst({
+    where: eq(providerProfiles.userId, appointment.providerId),
+  });
+  const years = doctorProfile?.yearsOfExperience ?? 0;
+  console.log("hiiiiiiiii", doctorProfile);
+
+  const tier = await tx.query.commissionExperienceTiers.findFirst({
+    where: and(
+      lte(commissionExperienceTiers.minYears, years),
+      or(
+        isNull(commissionExperienceTiers.maxYears),
+        gte(commissionExperienceTiers.maxYears, years),
+      ),
+    ),
+  });
+  if (!tier) return; // no matching tier configured - earns nothing, not an error
+
+  const rate = await tx.query.treatmentCommissionRates.findFirst({
+    where: and(
+      eq(treatmentCommissionRates.treatmentId, appointment.treatmentId),
+      eq(treatmentCommissionRates.tierId, tier.id),
+    ),
+  });
+  if (!rate) return; // no rate configured for this treatment+tier combination
+
+  const commissionAmountCents = Math.round(
+    (charge.amountCents * rate.commissionPercent) / 100,
+  );
+
+  await tx.insert(doctorCommissions).values({
+    doctorId: appointment.providerId,
+    appointmentId: appointment.id,
+    ledgerEntryId: charge.id,
+    treatmentId: appointment.treatmentId,
+    tierId: tier.id,
+    commissionPercent: rate.commissionPercent,
+    chargeAmountCents: charge.amountCents,
+    commissionAmountCents,
+  });
+}
 
 async function reconcilePatientCharges(tx: Transaction, patientId: string) {
   const allEntries = await tx
-    .select({
-      id: ledgerEntries.id,
-      type: ledgerEntries.type,
-      amountCents: ledgerEntries.amountCents,
-      createdAt: ledgerEntries.createdAt,
-    })
+    .select()
     .from(ledgerEntries)
     .where(eq(ledgerEntries.patientId, patientId))
     .orderBy(ledgerEntries.createdAt);
@@ -26,11 +80,30 @@ async function reconcilePatientCharges(tx: Transaction, patientId: string) {
   let remainingCredit = totalCredit;
   for (const charge of charges) {
     const newStatus = remainingCredit >= charge.amountCents ? "settled" : "due";
+
+    // ADDED - only fires the exact moment a charge TRANSITIONS into
+    // settled, never re-fires for a charge that was already settled.
+    if (
+      newStatus === "settled" &&
+      charge.status !== "settled" &&
+      charge.appointmentId
+    ) {
+      // FIX 2: Explicitly map the properties to guarantee exact type match
+      // and satisfy the non-null string requirement for appointmentId
+      await recordDoctorCommission(tx, {
+        id: charge.id,
+        appointmentId: charge.appointmentId,
+        amountCents: charge.amountCents,
+      });
+    }
+
     if (newStatus === "settled") remainingCredit -= charge.amountCents;
-    await tx.update(ledgerEntries).set({ status: newStatus }).where(eq(ledgerEntries.id, charge.id));
+    await tx
+      .update(ledgerEntries)
+      .set({ status: newStatus })
+      .where(eq(ledgerEntries.id, charge.id));
   }
 }
-
 
 export type LedgerErrorCode =
   | "UNAUTHORIZED"
@@ -42,22 +115,35 @@ export type AddLedgerEntryResult =
   | { success: true; entryId: string; newBalanceCents: number }
   | { success: false; error: string; code: LedgerErrorCode };
 
-export async function addLedgerEntry(input: unknown): Promise<AddLedgerEntryResult> {
+export async function addLedgerEntry(
+  input: unknown,
+): Promise<AddLedgerEntryResult> {
   try {
     const session = await requireSession();
 
     const parsed = addLedgerEntrySchema.safeParse(input);
     if (!parsed.success) {
-      return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input.", code: "VALIDATION" };
+      return {
+        success: false,
+        error: parsed.error.issues[0]?.message ?? "Invalid input.",
+        code: "VALIDATION",
+      };
     }
     const data = parsed.data;
 
     if (data.type === "payment" && !data.paymentMethod) {
-      return { success: false, error: "Please select a payment method.", code: "VALIDATION" };
+      return {
+        success: false,
+        error: "Please select a payment method.",
+        code: "VALIDATION",
+      };
     }
 
     const patient = await db.query.patients.findFirst({
-      where: and(eq(patients.id, data.patientId), eq(patients.orgId, session.orgId)),
+      where: and(
+        eq(patients.id, data.patientId),
+        eq(patients.orgId, session.orgId),
+      ),
     });
     if (!patient) {
       return { success: false, error: "Patient not found.", code: "NOT_FOUND" };
@@ -65,14 +151,22 @@ export async function addLedgerEntry(input: unknown): Promise<AddLedgerEntryResu
 
     if (data.appointmentId) {
       const appointment = await db.query.appointments.findFirst({
-        where: and(eq(appointments.id, data.appointmentId), eq(appointments.patientId, data.patientId)),
+        where: and(
+          eq(appointments.id, data.appointmentId),
+          eq(appointments.patientId, data.patientId),
+        ),
       });
       if (!appointment) {
-        return { success: false, error: "Appointment not found for this patient.", code: "NOT_FOUND" };
+        return {
+          success: false,
+          error: "Appointment not found for this patient.",
+          code: "NOT_FOUND",
+        };
       }
     }
 
-    const signedAmount = data.type === "charge" ? data.amountCents : -data.amountCents;
+    const signedAmount =
+      data.type === "charge" ? data.amountCents : -data.amountCents;
 
     const entryId = await db.transaction(async (tx) => {
       const [entry] = await tx
@@ -102,7 +196,9 @@ export async function addLedgerEntry(input: unknown): Promise<AddLedgerEntryResu
     });
 
     const [balanceResult] = await db
-      .select({ balance: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int` })
+      .select({
+        balance: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int`,
+      })
       .from(ledgerEntries)
       .where(eq(ledgerEntries.patientId, data.patientId));
 
@@ -112,11 +208,15 @@ export async function addLedgerEntry(input: unknown): Promise<AddLedgerEntryResu
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     console.error(err);
-    return { success: false, error: "Something went wrong adding the ledger entry.", code: "SERVER_ERROR" };
+    return {
+      success: false,
+      error: "Something went wrong adding the ledger entry.",
+      code: "SERVER_ERROR",
+    };
   }
 }
 
-// get patent ledger history 
+// get patent ledger history
 export type LedgerHistoryResult =
   | {
       success: true;
@@ -137,7 +237,9 @@ export type LedgerHistoryResult =
     }
   | { success: false; error: string; code: LedgerErrorCode };
 
-export async function getLedgerHistory(patientId: string): Promise<LedgerHistoryResult> {
+export async function getLedgerHistory(
+  patientId: string,
+): Promise<LedgerHistoryResult> {
   try {
     const session = await requireSession();
 
@@ -152,7 +254,7 @@ export async function getLedgerHistory(patientId: string): Promise<LedgerHistory
     // a real 0 before abs() ever runs - the original had abs() wrapping
     // the raw filtered sum directly, so abs(NULL) stayed NULL even after
     // the outer coalesce, which is what caused the 500.
-    const [summaryResult,entries] = await Promise.all([
+    const [summaryResult, entries] = await Promise.all([
       db
         .select({
           totalChargedCents: sql<number>`coalesce(sum(${ledgerEntries.amountCents}) filter (where ${ledgerEntries.type} = 'charge'), 0)::int`,
@@ -172,7 +274,10 @@ export async function getLedgerHistory(patientId: string): Promise<LedgerHistory
           createdAt: ledgerEntries.createdAt,
         })
         .from(ledgerEntries)
-        .leftJoin(appointments, eq(ledgerEntries.appointmentId, appointments.id))
+        .leftJoin(
+          appointments,
+          eq(ledgerEntries.appointmentId, appointments.id),
+        )
         .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
         .where(eq(ledgerEntries.patientId, patientId))
         .orderBy(desc(ledgerEntries.createdAt)),
@@ -181,7 +286,11 @@ export async function getLedgerHistory(patientId: string): Promise<LedgerHistory
     // Defensive fallback - guarantees `summary` is always a real object,
     // never undefined, even if this patient somehow has zero entries and
     // the aggregate query returns an empty array instead of one zeroed row.
-    const summary = summaryResult[0] ?? { totalChargedCents: 0, totalPaidCents: 0, balanceDueCents: 0 };
+    const summary = summaryResult[0] ?? {
+      totalChargedCents: 0,
+      totalPaidCents: 0,
+      balanceDueCents: 0,
+    };
 
     return {
       success: true,
@@ -193,11 +302,15 @@ export async function getLedgerHistory(patientId: string): Promise<LedgerHistory
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     console.error(err);
-    return { success: false, error: "Something went wrong loading ledger history.", code: "SERVER_ERROR" };
+    return {
+      success: false,
+      error: "Something went wrong loading ledger history.",
+      code: "SERVER_ERROR",
+    };
   }
 }
 
-// get stats 
+// get stats
 export type BillingStatsErrorCode = "UNAUTHORIZED" | "SERVER_ERROR";
 
 export type BillingStatsResult =
@@ -212,7 +325,9 @@ export type BillingStatsResult =
     }
   | { success: false; error: string; code: BillingStatsErrorCode };
 
-export async function getBillingStats(locationId: string): Promise<BillingStatsResult> {
+export async function getBillingStats(
+  locationId: string,
+): Promise<BillingStatsResult> {
   try {
     const session = await requireSession();
 
@@ -224,7 +339,12 @@ export async function getBillingStats(locationId: string): Promise<BillingStatsR
         })
         .from(ledgerEntries)
         .innerJoin(patients, eq(ledgerEntries.patientId, patients.id))
-        .where(and(eq(patients.orgId, session.orgId), eq(patients.locationId, locationId))),
+        .where(
+          and(
+            eq(patients.orgId, session.orgId),
+            eq(patients.locationId, locationId),
+          ),
+        ),
       db
         .select({
           patientId: patients.id,
@@ -232,12 +352,22 @@ export async function getBillingStats(locationId: string): Promise<BillingStatsR
         })
         .from(patients)
         .leftJoin(ledgerEntries, eq(ledgerEntries.patientId, patients.id))
-        .where(and(eq(patients.orgId, session.orgId), eq(patients.locationId, locationId)))
+        .where(
+          and(
+            eq(patients.orgId, session.orgId),
+            eq(patients.locationId, locationId),
+          ),
+        )
         .groupBy(patients.id),
     ]);
 
-    const outstandingDuesCents = perPatientBalances.reduce((sum, p) => sum + Math.max(p.balanceCents, 0), 0);
-    const patientsWithDuesCount = perPatientBalances.filter((p) => p.balanceCents > 0).length;
+    const outstandingDuesCents = perPatientBalances.reduce(
+      (sum, p) => sum + Math.max(p.balanceCents, 0),
+      0,
+    );
+    const patientsWithDuesCount = perPatientBalances.filter(
+      (p) => p.balanceCents > 0,
+    ).length;
 
     return {
       success: true,
@@ -253,7 +383,11 @@ export async function getBillingStats(locationId: string): Promise<BillingStatsR
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     console.error(err);
-    return { success: false, error: "Something went wrong loading billing stats.", code: "SERVER_ERROR" };
+    return {
+      success: false,
+      error: "Something went wrong loading billing stats.",
+      code: "SERVER_ERROR",
+    };
   }
 }
 
@@ -271,7 +405,11 @@ export type BillingPatientRow = {
 };
 
 export type BillingPatientsResult =
-  | { success: true; patients: BillingPatientRow[]; pagination: { total: number; limit: number; offset: number } }
+  | {
+      success: true;
+      patients: BillingPatientRow[];
+      pagination: { total: number; limit: number; offset: number };
+    }
   | { success: false; error: string; code: BillingPatientsErrorCode };
 
 const DEFAULT_LIMIT = 20;
@@ -279,18 +417,29 @@ const MAX_LIMIT = 100;
 
 export async function getBillingPatients(
   locationId: string,
-  options?: { search?: string; balanceFilter?: "all" | "due" | "settled"; limit?: number; offset?: number }
+  options?: {
+    search?: string;
+    balanceFilter?: "all" | "due" | "settled";
+    limit?: number;
+    offset?: number;
+  },
 ): Promise<BillingPatientsResult> {
   try {
     const session = await requireSession();
 
-    const limit = Math.min(Math.max(options?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
+    const limit = Math.min(
+      Math.max(options?.limit ?? DEFAULT_LIMIT, 1),
+      MAX_LIMIT,
+    );
     const offset = Math.max(options?.offset ?? 0, 0);
 
-    const conditions = [eq(patients.orgId, session.orgId), eq(patients.locationId, locationId)];
+    const conditions = [
+      eq(patients.orgId, session.orgId),
+      eq(patients.locationId, locationId),
+    ];
     if (options?.search) {
       conditions.push(
-        sql`(${patients.firstName} || ' ' || ${patients.lastName} ilike ${"%" + options.search + "%"} or ${patients.phone} ilike ${"%" + options.search + "%"})`
+        sql`(${patients.firstName} || ' ' || ${patients.lastName} ilike ${"%" + options.search + "%"} or ${patients.phone} ilike ${"%" + options.search + "%"})`,
       );
     }
 
@@ -307,7 +456,12 @@ export async function getBillingPatients(
       .from(patients)
       .leftJoin(ledgerEntries, eq(ledgerEntries.patientId, patients.id))
       .where(and(...conditions))
-      .groupBy(patients.id, patients.firstName, patients.lastName, patients.phone);
+      .groupBy(
+        patients.id,
+        patients.firstName,
+        patients.lastName,
+        patients.phone,
+      );
 
     // status is derived here, in application code, from the balance
     // already computed above - same rule used everywhere else in this
@@ -327,12 +481,20 @@ export async function getBillingPatients(
     const total = filtered.length;
     const paged = filtered.slice(offset, offset + limit);
 
-    return { success: true, patients: paged, pagination: { total, limit, offset } };
+    return {
+      success: true,
+      patients: paged,
+      pagination: { total, limit, offset },
+    };
   } catch (err) {
     if (err instanceof SessionError) {
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     console.error(err);
-    return { success: false, error: "Something went wrong loading patient billing.", code: "SERVER_ERROR" };
+    return {
+      success: false,
+      error: "Something went wrong loading patient billing.",
+      code: "SERVER_ERROR",
+    };
   }
 }

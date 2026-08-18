@@ -16,7 +16,8 @@ import {
   Stethoscope,
   Wallet,
   Receipt,
-  BarChart3
+  BarChart3,
+  Percent,
 } from "lucide-react";
 
 const BASE_ORG_NAV_ITEMS = [
@@ -25,6 +26,7 @@ const BASE_ORG_NAV_ITEMS = [
   { label: "Outlets", href: "/outlets", icon: Store },
   { label: "Staffs", href: "/staffs", icon: Users },
   { label: "Doctors", href: "/doctors", icon: Stethoscope },
+  { label: "Commission", href: "/commision", icon: Percent },
   { label: "Appointments", href: "/appointments", icon: CalendarDays },
   { label: "Patients", href: "/patients", icon: Users },
   { label: "Treatments", href: "/treatments", icon: Briefcase },
@@ -32,7 +34,7 @@ const BASE_ORG_NAV_ITEMS = [
   { label: "Service Material", href: "/material", icon: Wrench, requiresInventory: true },
   { label: "Billing", href: "/billing", icon: Wallet },
   { label: "Expenses", href: "/expenses", icon: Receipt },
-  { label: " Settings", href: "/settings", icon: Settings },
+  { label: "Settings", href: "/settings", icon: Settings },
 ];
 
 function formatTenantSlug(slug?: string): string {
@@ -75,14 +77,11 @@ function OrgSidebar({ inventoryEnabled = true }: OrgSidebarProps) {
 
   return (
     <aside className="flex min-h-screen w-70 shrink-0 flex-col bg-[#3f6274] py-6">
-
-
       <div className="flex flex-col gap-1 px-6">
         <span className="text-2xl font-semibold tracking-tight text-white capitalize truncate" title={displayTitle}>
           {displayTitle}
         </span>
         <hr className="border-white/15 mt-7" />
-
       </div>
 
       <nav className="mt-6 flex flex-1 flex-col gap-2">
@@ -109,7 +108,6 @@ function OrgSidebar({ inventoryEnabled = true }: OrgSidebarProps) {
           );
         })}
       </nav>
-
 
       <div className="mt-auto border-t border-white/15 px-4 pt-4">
         <button

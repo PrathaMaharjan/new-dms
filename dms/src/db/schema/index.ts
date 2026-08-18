@@ -8,3 +8,4 @@ export * from "./clinical";
 export * from "./treatment";
 export * from "./inventory"
 export * from "./expenses"
+export * from "./commision"
