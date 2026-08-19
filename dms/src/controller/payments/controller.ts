@@ -28,7 +28,6 @@ async function recordDoctorCommission(
     where: eq(providerProfiles.userId, appointment.providerId),
   });
   const years = doctorProfile?.yearsOfExperience ?? 0;
-  console.log("hiiiiiiiii", doctorProfile);
 
   const tier = await tx.query.commissionExperienceTiers.findFirst({
     where: and(

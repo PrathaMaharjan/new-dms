@@ -37,9 +37,9 @@ import {
   Receipt,
   TrendingDown,
 } from "lucide-react";
-import CommissionStatCard from "./componets/commsion";
 import { useWorkloadThresholds } from "@/lib/hooks/workload";
 import { getWorkloadStatus, WORKLOAD_DISPLAY, WORKLOAD_ICON } from "@/lib/workload";
+import CommissionStatCard from "./components/commission";
 
 const STATUS_COLORS: Record<string, string> = {
   Confirmed: "#7da3b3",

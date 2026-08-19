@@ -8,7 +8,6 @@ export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
   const range = (sp.get("range") ?? "1y") as AnalyticsRange;
   const locationId = sp.get("locationId") ?? undefined;
-  console.log("loaction ", locationId);
 
   const result = await getCostRevenueTrend(range, locationId);
 

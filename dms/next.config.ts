@@ -4,8 +4,6 @@ const nextConfig: NextConfig = {
 
   reactCompiler: true,
   serverExternalPackages: ["pdfkit"],
-
-
   async headers() {
     return [
       {

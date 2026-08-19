@@ -19,9 +19,6 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ success: true, statusCode: 200, data: { user: result.user } });
 }
 
-
-
-
 export async function GET() {
   const result = await getMyDetails();
 

@@ -232,11 +232,7 @@ export type UpdateStaffResult =
     if (data.isActive !== undefined) userUpdates.isActive = data.isActive;
 
     const updatedUser = await db.transaction(async (tx) => {
-      // The ownership check and the actual update are now the SAME
-      // query - if the WHERE clause doesn't match (wrong org, doesn't
-      // exist), .returning() comes back empty and that's our NOT_FOUND
-      // signal. No separate findOwnedStaff lookup beforehand, no second
-      // SELECT afterward when there's nothing new to write.
+
       const [updated] = await tx
         .update(users)
         .set(Object.keys(userUpdates).length > 0 ? userUpdates : { updatedAt: sql`now()` })

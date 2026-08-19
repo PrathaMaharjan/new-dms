@@ -40,10 +40,11 @@ export const organizations = pgTable(
     photoUrl: text("photo_url"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    workloadHealthyMax: integer("workload_healthy_max").notNull().default(15),
+    workloadBusyMax: integer("workload_busy_max").notNull().default(20),
     inventoryEnabled: boolean("inventory_enabled").notNull().default(true),
   },
-  
-  
+
   (table) => ({
     statusIdx: index("organizations_status_idx").on(table.status),
   }),
