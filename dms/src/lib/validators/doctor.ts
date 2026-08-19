@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { optionalPhoneSchema } from "./phone";
 
 export const createDoctorSchema = z.object({
   locationId: z.string().uuid("Missing or invalid location"),
   name: z.string().min(1, "Full name is required"),
   email: z.string().email("Please enter a valid email address"),
-  phone: z.string().optional(),
+  phone: optionalPhoneSchema,
   password: z.string().min(8, "Password must be at least 8 characters"),
   photoKey: z.string().optional(),
   specialization: z
@@ -36,7 +37,7 @@ export type CreateDoctorInput = z.infer<typeof createDoctorSchema>;
 export const updateDoctorSchema = z.object({
   name: z.string().min(1, "Full name is required").optional(),
   email: z.string().email("Please enter a valid email address").optional(),
-  phone: z.string().optional(),
+  phone: optionalPhoneSchema,
   photoKey: z.string().optional(),
   specialization: z
     .enum([

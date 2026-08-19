@@ -95,6 +95,13 @@ export default function BookingPage() {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setError(null);
+
+    const cleanPhone = form.phone.trim().replace(/[\s-]/g, "");
+    if (!cleanPhone || !/^9\d{9}$/.test(cleanPhone)) {
+      setError("Please enter a valid 10-digit phone number starting with 9 (e.g. 9812345678).");
+      return;
+    }
 
     setSubmitted(true);
   }
@@ -191,7 +198,8 @@ export default function BookingPage() {
                     type="tel"
                     value={form.phone}
                     onChange={(e) => update("phone", e.target.value)}
-                    placeholder="9XXXXXXXXX"
+                    placeholder="98XXXXXXXX"
+                    maxLength={10}
                     className={inputClass}
                   />
                 </label>

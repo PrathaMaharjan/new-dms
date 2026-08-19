@@ -319,6 +319,12 @@ export default function AdminStaffPage() {
     e.preventDefault();
     setSubmitError(null);
 
+    const cleanPhone = form.phone.trim().replace(/[\s-]/g, "");
+    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
+      setSubmitError("Please enter a valid 10-digit phone number starting with 9 (e.g. 9812345678).");
+      return;
+    }
+
     if (modalMode === "add" && !editingId) {
       if (!form.password || form.password.length < 8) {
         setSubmitError("Password must be at least 8 characters long.");
@@ -822,11 +828,11 @@ export default function AdminStaffPage() {
                       Phone number
                     </span>
                     <input
-                      required
                       type="tel"
                       value={form.phone}
                       onChange={(e) => update("phone", e.target.value)}
-                      placeholder="+977 981-2345671"
+                      placeholder="98XXXXXXXX"
+                      maxLength={10}
                       className={inputClass}
                     />
                   </label>

@@ -261,6 +261,12 @@ export default function PatientsTab() {
       return;
     }
 
+    const cleanPhone = newPatient.phone.trim().replace(/[\s-]/g, "");
+    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
+      setErrorMsg("Please enter a valid 10-digit phone number starting with 9 .");
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = {
@@ -326,6 +332,12 @@ export default function PatientsTab() {
 
     if (!editPatient.firstName || !editPatient.lastName) {
       setErrorMsg("Please enter patient first and last name.");
+      return;
+    }
+
+    const cleanPhone = editPatient.phone.trim().replace(/[\s-]/g, "");
+    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
+      setErrorMsg("Please enter a valid 10-digit phone number starting with 9 ).");
       return;
     }
 
@@ -655,7 +667,8 @@ export default function PatientsTab() {
             <span className="mb-1 block text-xs font-medium text-slate-600">Phone Number</span>
             <input
               type="tel"
-              placeholder="Phone Number"
+              placeholder=""
+              maxLength={10}
               value={newPatient.phone}
               className={inputClass}
               onChange={(e) => setNewPatient({ ...newPatient, phone: e.target.value })}
@@ -793,6 +806,7 @@ export default function PatientsTab() {
             <input
               type="tel"
               placeholder="Phone Number"
+              maxLength={10}
               value={editPatient.phone}
               className={inputClass}
               onChange={(e) => setEditPatient({ ...editPatient, phone: e.target.value })}

@@ -74,6 +74,19 @@ const OUTLETS_DEFAULT: { id: string; name: string }[] = [];
 const BLOOD_GROUPS = ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"];
 const GENDERS = ["Female", "Male", "Other"];
 
+function calculateAgeFromDob(dob?: string | null): string {
+  if (!dob) return "";
+  const birthDate = new Date(dob);
+  if (isNaN(birthDate.getTime())) return "";
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDelta = today.getMonth() - birthDate.getMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age >= 0 ? String(age) : "";
+}
+
 const AVATAR_COLORS = [
   "bg-rose-100 text-rose-700",
   "bg-sky-100 text-sky-700",
@@ -141,6 +154,8 @@ function formatDob(val?: string | null): string {
 }
 
 function doctorToForm(doc: Doctor): FormState {
+  const dobVal = formatDob(doc.dob || doc.dateOfBirth);
+  const computedAge = calculateAgeFromDob(dobVal);
   return {
     name: doc.name,
     email: doc.email,
@@ -149,10 +164,10 @@ function doctorToForm(doc: Doctor): FormState {
     experience: doc.experience ?? "",
     qualification: doc.qualification ?? "",
     imageUrl: doc.imageUrl ?? "",
-    age: doc.age ?? "",
+    age: computedAge || doc.age || "",
     bloodGroup: doc.bloodGroup ?? BLOOD_GROUPS[0],
     gender: doc.gender ?? GENDERS[0],
-    dob: formatDob(doc.dob || doc.dateOfBirth),
+    dob: dobVal,
     address: doc.address ?? "",
     education: (doc.education ?? []).join("\n"),
     experienceNotes: (doc.experienceNotes ?? []).join("\n"),
@@ -254,6 +269,8 @@ export default function DoctorsPage() {
         dbDoctors.forEach((d: any, index: number) => {
           if (d.id && !seen.has(d.id)) {
             seen.add(d.id);
+            const rawDob = formatDob(pickField(d, "dateOfBirth", "dob", "date_of_birth"));
+            const computedAge = calculateAgeFromDob(rawDob);
             mapped.push({
               id: d.id,
               name: d.name,
@@ -266,10 +283,10 @@ export default function DoctorsPage() {
               patients: d.patientsCheckedUp ?? 0,
               imageUrl: d.photoUrl || undefined,
               doctorId: `DOC-${1000 + index + 1}`,
-              age: d.age || "30",
+              age: computedAge || (d.age ? String(d.age) : ""),
               bloodGroup: d.bloodGroup || "O+",
               gender: d.gender || "Female",
-              dob: formatDob(pickField(d, "dateOfBirth", "dob", "date_of_birth")),
+              dob: rawDob,
               address: pickField(d, "address", "location", "doctorAddress", "residenceAddress"),
               education: d.education ? [d.education] : [],
               experienceNotes: d.bio ? [d.bio] : [],
@@ -331,6 +348,8 @@ export default function DoctorsPage() {
       const res = await axios.get(`/api/doctor/${doc.id}`);
       if (res.data?.success && res.data.data?.doctor) {
         const fullDoc = res.data.data.doctor;
+        const dobVal = formatDob(pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth")) || doc.dob;
+        const computedAge = calculateAgeFromDob(dobVal);
         const mergedDoc: Doctor = {
           ...doc,
           name: fullDoc.name || doc.name,
@@ -341,10 +360,10 @@ export default function DoctorsPage() {
           imageUrl: fullDoc.photoUrl || doc.imageUrl,
           education: fullDoc.education ? (typeof fullDoc.education === "string" ? fullDoc.education.split("\n") : fullDoc.education) : (doc.education || []),
           experienceNotes: fullDoc.bio ? (typeof fullDoc.bio === "string" ? fullDoc.bio.split("\n") : fullDoc.bio) : (doc.experienceNotes || []),
-          age: fullDoc.age || doc.age,
+          age: computedAge || fullDoc.age || doc.age,
           bloodGroup: fullDoc.bloodGroup || doc.bloodGroup,
           gender: fullDoc.gender || doc.gender,
-          dob: formatDob(pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth")) || doc.dob,
+          dob: dobVal,
           address: pickField(fullDoc, "address", "location", "doctorAddress", "residenceAddress") || doc.address,
         };
         setSelectedDoctor((prev) => (prev && prev.id === doc.id ? mergedDoc : prev));
@@ -384,6 +403,8 @@ export default function DoctorsPage() {
       const res = await axios.get(`/api/doctor/${doc.id}`);
       if (res.data?.success && res.data.data?.doctor) {
         const fullDoc = res.data.data.doctor;
+        const dobVal = formatDob(pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth")) || doc.dob;
+        const computedAge = calculateAgeFromDob(dobVal);
         const mergedDoc: Doctor = {
           ...doc,
           name: fullDoc.name || doc.name,
@@ -394,10 +415,10 @@ export default function DoctorsPage() {
           imageUrl: fullDoc.photoUrl || doc.imageUrl,
           education: fullDoc.education ? (typeof fullDoc.education === "string" ? fullDoc.education.split("\n") : fullDoc.education) : (doc.education || []),
           experienceNotes: fullDoc.bio ? (typeof fullDoc.bio === "string" ? fullDoc.bio.split("\n") : fullDoc.bio) : (doc.experienceNotes || []),
-          age: fullDoc.age || doc.age,
+          age: computedAge || fullDoc.age || doc.age,
           bloodGroup: fullDoc.bloodGroup || doc.bloodGroup,
           gender: fullDoc.gender || doc.gender,
-          dob: formatDob(pickField(fullDoc, "dateOfBirth", "dob", "date_of_birth")) || doc.dob,
+          dob: dobVal,
           address: pickField(fullDoc, "address", "location", "doctorAddress", "residenceAddress") || doc.address,
         };
         setForm(doctorToForm(mergedDoc));
@@ -469,7 +490,13 @@ export default function DoctorsPage() {
   }, [doctors]);
 
   function update<K extends keyof FormState>(key: K, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }));
+    setForm((prev) => {
+      const updated = { ...prev, [key]: value };
+      if (key === "dob") {
+        updated.age = calculateAgeFromDob(value);
+      }
+      return updated;
+    });
   }
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -484,6 +511,12 @@ export default function DoctorsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitError(null);
+
+    const cleanPhone = form.phone.trim().replace(/[\s-]/g, "");
+    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
+      setSubmitError("Please enter a valid 10-digit phone number starting with 9 (e.g. 9812345678).");
+      return;
+    }
 
     if (modalMode === "add") {
       if (!form.password || form.password.length < 8) {
@@ -621,7 +654,7 @@ export default function DoctorsPage() {
               experience: form.experience,
               qualification: form.qualification,
               imageUrl: newDoc.photoUrl || (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : undefined),
-              age: form.age,
+              age: calculateAgeFromDob(form.dob) || form.age,
               bloodGroup: form.bloodGroup,
               gender: form.gender,
               dob: form.dob,
@@ -1006,11 +1039,11 @@ export default function DoctorsPage() {
                       Phone
                     </span>
                     <input
-                      required
                       type="tel"
                       value={form.phone}
                       onChange={(e) => update("phone", e.target.value)}
-
+                      placeholder="e.g. 9812345678"
+                      maxLength={10}
                       className={inputClass}
                     />
                   </label>
@@ -1115,35 +1148,19 @@ export default function DoctorsPage() {
                   />
                 </label>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <User className="h-3.5 w-3.5" strokeWidth={2} />
-                      Age
-                    </span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={form.age}
-                      onChange={(e) => update("age", e.target.value)}
-
-                      className={inputClass}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <Cake className="h-3.5 w-3.5" strokeWidth={2} />
-                      Date of birth
-                    </span>
-                    <input
-                      type="date"
-                      value={form.dob}
-                      onChange={(e) => update("dob", e.target.value)}
-                      max={new Date().toISOString().split("T")[0]}
-                      className={inputClass}
-                    />
-                  </label>
-                </div>
+                <label className="block">
+                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                    <Cake className="h-3.5 w-3.5" strokeWidth={2} />
+                    Date of birth
+                  </span>
+                  <input
+                    type="date"
+                    value={form.dob}
+                    onChange={(e) => update("dob", e.target.value)}
+                    max={new Date().toISOString().split("T")[0]}
+                    className={inputClass}
+                  />
+                </label>
 
                 <div className="grid grid-cols-2 gap-4">
                   <label className="block">
@@ -1379,7 +1396,9 @@ export default function DoctorsPage() {
                             Age
                           </p>
                           <p className="mt-1 font-medium text-slate-800">
-                            {selectedDoctor.age ? `${selectedDoctor.age} Years Old` : "—"}
+                            {selectedDoctor.age || calculateAgeFromDob(selectedDoctor.dob || selectedDoctor.dateOfBirth)
+                              ? `${selectedDoctor.age || calculateAgeFromDob(selectedDoctor.dob || selectedDoctor.dateOfBirth)} Years Old`
+                              : "—"}
                           </p>
                         </div>
                         <div>

@@ -80,7 +80,7 @@ export default function DoctorHeader({
         </h1>
       </div>
 
-      {/* Centered Pill Navigation Container (Mobile Responsive Horizontal Scroll) */}
+      
       <div className="inline-flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-slate-100 p-1.5 shadow-md shadow-slate-200/50 border border-slate-200/60 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
         <button
           onClick={() => setActiveTab("dashboard")}
@@ -130,7 +130,7 @@ export default function DoctorHeader({
             }`}
         >
           <Wallet className="h-3.5 w-3.5" />
-          My Earnings
+          Commission
         </button>
         <button
           onClick={() => setActiveTab("settings")}

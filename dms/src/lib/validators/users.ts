@@ -1,10 +1,11 @@
 import { z } from "zod";
+import { optionalPhoneSchema } from "./phone";
 
 export const updateMyDetailsSchema = z.object({
   firstName: z.string().min(1, "First name is required").optional(),
   lastName: z.string().min(1, "Last name is required").optional(),
   email: z.string().email("Please enter a valid email address").optional(),
-  phone: z.string().optional(),
+  phone: optionalPhoneSchema,
   photoKey: z.string().optional(),
 });
 
@@ -27,7 +28,7 @@ export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
 export const updateDoctorSchema = z.object({
   name: z.string().min(1, "Full name is required").optional(),
   email: z.string().email("Please enter a valid email address").optional(),
-  phone: z.string().optional(),
+  phone: optionalPhoneSchema,
   photoKey: z.string().optional(),
   
   specialization: z

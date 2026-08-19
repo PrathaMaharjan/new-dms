@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { organizations } from "@/db/schema";
 
 export type ResolveOrgResult =
-  | { success: true; org: { id: string; name: string; slug: string; inventoryEnabled: boolean } }
+  | { success: true; org: { id: string; name: string; slug: string; photoUrl: string | null; inventoryEnabled: boolean } }
   | { success: false; error: string };
 
 export async function resolveOrgBySlug(slug: string): Promise<ResolveOrgResult> {
@@ -18,5 +18,14 @@ export async function resolveOrgBySlug(slug: string): Promise<ResolveOrgResult> 
     return { success: false, error: "This clinic's page is currently unavailable." };
   }
 
-  return { success: true, org: { id: org.id, name: org.name, slug: org.slug, inventoryEnabled: org.inventoryEnabled } };
+  return {
+    success: true,
+    org: {
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      photoUrl: org.photoUrl ?? null,
+      inventoryEnabled: org.inventoryEnabled,
+    },
+  };
 }

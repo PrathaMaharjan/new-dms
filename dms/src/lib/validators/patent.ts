@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { optionalPhoneSchema } from "./phone";
 
 export const patientSchema = z.object({
   locationId: z.string().uuid("Missing or invalid location"),
@@ -6,7 +7,7 @@ export const patientSchema = z.object({
   lastName: z.string().min(1, "Last name is required"),
   age: z.number().optional(),
   dob: z.string().optional(),
-  phone: z.string().optional(),
+  phone: optionalPhoneSchema,
   email: z.string().email("Please enter a valid email address").optional().or(z.literal("")),
   gender: z.string().optional(),
   bloodGroup: z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]).optional(),
@@ -25,7 +26,7 @@ export const updatePatientSchema = z.object({
   lastName: z.string().min(1, "Last name is required").optional(),
   age: z.number().optional(),
   dob: z.string().optional(),
-  phone: z.string().optional(),
+  phone: optionalPhoneSchema,
   email: z.string().email("Please enter a valid email address").optional().or(z.literal("")),
   gender: z.string().optional(),
   bloodGroup: z.enum(["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]).optional(),
