@@ -7,12 +7,17 @@ import { platformAdminLoginSchema } from "@/lib/validators/superadmin";
 
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const getAccessTokenSecret = () =>
-  process.env.SUPERADMIN_ACCESS_TOKEN_SECRET || process.env.JWT_ACCESS_SECRET || "superadmin_access_token_secret_default";
+  process.env.SUPERADMIN_ACCESS_TOKEN_SECRET ||
+  process.env.JWT_ACCESS_SECRET ||
+  "superadmin_access_token_secret_default";
 
 const getRefreshTokenSecret = () =>
-  process.env.SUPERADMIN_REFRESH_TOKEN_SECRET || process.env.JWT_REFRESH_SECRET || "superadmin_refresh_token_secret_default";
+  process.env.SUPERADMIN_REFRESH_TOKEN_SECRET ||
+  process.env.JWT_REFRESH_SECRET ||
+  "superadmin_refresh_token_secret_default";
 
 export const SUPERADMIN_ACCESS_TOKEN_MAX_AGE_SECONDS = 15 * 60; // 15 minutes, same lifetime as staff tokens
 
@@ -67,12 +72,21 @@ export type PlatformAdminLoginResult =
     }
   | { success: false; error: string };
 
-export async function platformAdminLoginController(input: unknown): Promise<PlatformAdminLoginResult> {
+export async function platformAdminLoginController(
+  input: unknown,
+  ip: string
+): Promise<PlatformAdminLoginResult> {
   const parsed = platformAdminLoginSchema.safeParse(input);
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
   }
   const { email, password } = parsed.data;
+
+  const rateLimitKey = `ratelimit:superadmin-login:${ip}`;
+  const rateLimit = await checkRateLimit(rateLimitKey, 3, 1800);
 
   const admin = await db.query.platformAdmins.findFirst({
     where: eq(platformAdmins.email, email),
@@ -88,7 +102,11 @@ export async function platformAdminLoginController(input: unknown): Promise<Plat
   }
 
   const accessToken = signSuperAdminAccessToken({ adminId: admin.id });
-  const { token: refreshToken, tokenHash, expiresAt } = generateSuperAdminRefreshToken();
+  const {
+    token: refreshToken,
+    tokenHash,
+    expiresAt,
+  } = generateSuperAdminRefreshToken();
 
   await db.insert(platformAdminRefreshTokens).values({
     platformAdminId: admin.id,

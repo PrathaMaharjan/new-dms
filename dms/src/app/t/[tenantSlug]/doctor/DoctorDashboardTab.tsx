@@ -57,6 +57,15 @@ const STATUS_NAME_MAP: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+// ADDED - maps this component's display-friendly timeframe labels to the
+// backend's real range vocabulary ("7d"/"1m"/"1y"), same values
+// getAppointmentTrend/getDoctorDashboardFull actually expect.
+const TIMEFRAME_TO_RANGE: Record<"7days" | "30days" | "1year", "7d" | "1m" | "1y"> = {
+  "7days": "7d",
+  "30days": "1m",
+  "1year": "1y",
+};
+
 interface DoctorDashboardData {
   stats: {
     appointmentsToday: number;
@@ -65,7 +74,7 @@ interface DoctorDashboardData {
     activePatients: number;
   };
   todayStatus: { status: string; count: number }[];
-  last7Days: { day: string; date: string; count: number }[];
+  appointmentTrend: { label: string; count: number }[]; // CHANGED - was last7Days; now genuinely range-flexible, matching the backend field rename
   upNext: {
     id: string;
     patientName: string;
@@ -118,6 +127,12 @@ export default function DoctorDashboardTab({
     useState<DoctorDashboardData | null>(null);
   const { thresholds } = useWorkloadThresholds(activeLocId);
 
+  // ADDED - lives here (not inside loadData) so the timeframe select can
+  // read/write it directly, same as before.
+const [appointmentTimeframe, setAppointmentTimeframe] = useState<
+  "7days" | "30days" | "1year"
+>("7days");
+
   const loadDoctorProfile = useCallback(async () => {
     try {
       const res = await axios.get("/api/user-details");
@@ -130,7 +145,9 @@ export default function DoctorDashboardTab({
     }
   }, []);
 
-  const loadData = useCallback(async () => {
+  // CHANGED - now accepts a timeframe and passes the mapped range to the
+  // backend call, instead of always fetching a fixed 7-day window.
+  const loadData = useCallback(async (timeframe: "7days" | "30days" | "1year") => {
     try {
       setLoading(true);
       setErrorMsg(null);
@@ -183,7 +200,10 @@ export default function DoctorDashboardTab({
       }
 
       const res = await axios.get("/api/doctor/Dashboard/homePage/getAll", {
-        params: { locationId },
+        params: {
+          locationId,
+          trendRange: TIMEFRAME_TO_RANGE[timeframe], // ADDED
+        },
       });
 
       if (res?.data?.success && res.data.data?.dashboard) {
@@ -204,10 +224,16 @@ export default function DoctorDashboardTab({
     }
   }, []);
 
+  // CHANGED - loadData now runs whenever appointmentTimeframe changes
+  // (including the initial mount), instead of running once with no
+  // timeframe argument.
   useEffect(() => {
-    loadData();
+    loadData(appointmentTimeframe);
+  }, [appointmentTimeframe, loadData]);
+
+  useEffect(() => {
     loadDoctorProfile();
-  }, [loadData, loadDoctorProfile]);
+  }, [loadDoctorProfile]);
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -233,47 +259,17 @@ export default function DoctorDashboardTab({
       .filter((item) => item.value > 0);
   }, [dashboardData]);
 
-  const [appointmentTimeframe, setAppointmentTimeframe] = useState<
-    "7days" | "30days" | "1year"
-  >("7days");
-
+  // CHANGED - completely replaces the old hardcoded-branches version.
+  // Now just reads whatever the backend actually returned for the
+  // currently-selected range - no fake arrays, no client-side switching.
   const weeklyTrend = useMemo(() => {
-    if (appointmentTimeframe === "30days") {
-      return [
-        { label: "Week 1", count: 18 },
-        { label: "Week 2", count: 24 },
-        { label: "Week 3", count: 22 },
-        { label: "Week 4", count: 29 },
-      ];
-    }
-    if (appointmentTimeframe === "1year") {
-      return [
-        { label: "Jan", count: 42 },
-        { label: "Feb", count: 50 },
-        { label: "Mar", count: 48 },
-        { label: "Apr", count: 65 },
-        { label: "May", count: 70 },
-        { label: "Jun", count: 62 },
-        { label: "Jul", count: 84 },
-        { label: "Aug", count: 75 },
-        { label: "Sep", count: 68 },
-        { label: "Oct", count: 72 },
-        { label: "Nov", count: 64 },
-        { label: "Dec", count: 88 },
-      ];
-    }
-    if (!dashboardData?.last7Days) return [];
-    return dashboardData.last7Days.map((d) => ({
-      label: d.day,
-      date: d.date,
-      count: d.count,
-    }));
-  }, [dashboardData, appointmentTimeframe]);
+    if (!dashboardData?.appointmentTrend) return [];
+    return dashboardData.appointmentTrend;
+  }, [dashboardData]);
 
   const upNext = dashboardData?.upNext || null;
   const todaysSchedule = dashboardData?.todaysSchedule || [];
   const recentPatients = dashboardData?.recentPatients || [];
-  console.log(doctorName);
 
   return (
     <div className="w-full py-6">
