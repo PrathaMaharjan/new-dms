@@ -96,7 +96,7 @@ const CHART_VIEWS: { value: ChartView; label: string }[] = [
     { value: "net", label: "Net Profit" },
 ];
 
-// Net Profit bar is a consistent yellow; profit/loss is shown via a small arrow indicator instead of bar color
+
 const NET_COLOR = "#eab308";
 const PROFIT_COLOR = "#10b981";
 const LOSS_COLOR = "#e11d48";

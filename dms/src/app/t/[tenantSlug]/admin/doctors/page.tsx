@@ -40,6 +40,7 @@ import {
   EyeOff,
 } from "lucide-react";
 import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
+import WorkloadConfigCard from "../../organization/doctors/components/WorkloadConfigCard";
 
 const SPECIALIZATIONS = [
   "General Dentistry",
@@ -693,7 +694,7 @@ export default function DoctorsPage() {
 
       <div className="relative mx-auto max-w-[1600px] px-6 pb-10 pt-6 lg:px-10">
         {/* Stats */}
-        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
           {stats.map((stat) => {
             const TrendIcon = stat.trendUp ? TrendingUp : TrendingDown;
             return (
@@ -755,13 +756,16 @@ export default function DoctorsPage() {
               </div>
             </div>
 
-            <button
-              onClick={openAddModal}
-              className="inline-flex items-center gap-2 rounded-full bg-[#749fb1] px-5 py-2.5 text-[0.9rem] font-medium text-white shadow-sm transition-colors hover:bg-[#345263]"
-            >
-              <Plus className="h-4 w-4" strokeWidth={2} />
-              Add Doctor
-            </button>
+            <div className="flex items-center gap-3">
+              <WorkloadConfigCard />
+              <button
+                onClick={openAddModal}
+                className="inline-flex items-center gap-2 rounded-full bg-[#749fb1] px-5 py-2.5 text-[0.9rem] font-medium text-white shadow-sm transition-colors hover:bg-[#345263]"
+              >
+                <Plus className="h-4 w-4" strokeWidth={2} />
+                Add Doctor
+              </button>
+            </div>
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4">

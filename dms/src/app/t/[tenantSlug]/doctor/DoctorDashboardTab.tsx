@@ -109,13 +109,14 @@ export default function DoctorDashboardTab({
     tab: "schedule" | "patients" | "availability" | "settings",
   ) => void;
 }) {
-    
+
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [doctorName, setDoctorName] = useState<string>("");
+  const [activeLocId, setActiveLocId] = useState<string | null>(null);
   const [dashboardData, setDashboardData] =
     useState<DoctorDashboardData | null>(null);
-  const { thresholds } = useWorkloadThresholds();
+  const { thresholds } = useWorkloadThresholds(activeLocId);
 
   const loadDoctorProfile = useCallback(async () => {
     try {
@@ -135,31 +136,48 @@ export default function DoctorDashboardTab({
       setErrorMsg(null);
 
       let locationId: string | null = null;
-      const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
-        axios.get("/api/services").catch(() => null),
-        axios.get("/api/treatment").catch(() => null),
-        axios.get("/api/patent").catch(() => null),
-      ]);
 
-      if (
-        servicesRes?.data?.success &&
-        servicesRes.data.data.services?.length > 0
-      ) {
-        locationId = servicesRes.data.data.services[0].locationId;
-      } else if (
-        treatmentsRes?.data?.success &&
-        treatmentsRes.data.data.treatments?.length > 0
-      ) {
-        locationId = treatmentsRes.data.data.treatments[0].locationId;
-      } else if (
-        patientsRes?.data?.success &&
-        patientsRes.data.data.patients?.length > 0
-      ) {
-        locationId = patientsRes.data.data.patients[0].locationId;
+      try {
+        const savedLoc =
+          localStorage.getItem("dms_location_id") ||
+          localStorage.getItem("current_location_id") ||
+          localStorage.getItem("locationId");
+        if (savedLoc) locationId = savedLoc;
+      } catch (e) { }
+
+
+      if (!locationId) {
+        const [outletsRes, doctorRes, servicesRes, treatmentsRes, patientsRes, apptsRes] =
+          await Promise.all([
+            axios.get("/api/outlets").catch(() => null),
+            axios.get("/api/doctor").catch(() => null),
+            axios.get("/api/services").catch(() => null),
+            axios.get("/api/treatment").catch(() => null),
+            axios.get("/api/patent").catch(() => null),
+            axios.get("/api/appoments").catch(() => null),
+          ]);
+
+        locationId =
+          outletsRes?.data?.data?.locations?.[0]?.id ||
+          outletsRes?.data?.data?.outlets?.[0]?.id ||
+          (Array.isArray(outletsRes?.data?.data) ? outletsRes?.data?.data?.[0]?.id : null) ||
+          doctorRes?.data?.data?.doctors?.[0]?.locationId ||
+          servicesRes?.data?.data?.services?.[0]?.locationId ||
+          treatmentsRes?.data?.data?.treatments?.[0]?.locationId ||
+          patientsRes?.data?.data?.patients?.[0]?.locationId ||
+          apptsRes?.data?.data?.appointments?.[0]?.locationId ||
+          null;
+      }
+
+      if (locationId) {
+        setActiveLocId(locationId);
+        try {
+          localStorage.setItem("dms_location_id", locationId);
+        } catch (e) { }
       }
 
       if (!locationId) {
-        setErrorMsg("No clinic location found.");
+        setErrorMsg("No clinic location found. Please ensure a clinic location exists.");
         setLoading(false);
         return;
       }
@@ -179,7 +197,7 @@ export default function DoctorDashboardTab({
       console.error("Failed to load doctor dashboard data:", err);
       setErrorMsg(
         err?.response?.data?.error ||
-          "Failed to load dashboard data from server.",
+        "Failed to load dashboard data from server.",
       );
     } finally {
       setLoading(false);
@@ -269,40 +287,40 @@ export default function DoctorDashboardTab({
           </div>
         )}
 
-      <div className="flex w-full justify-start">
-  {!loading &&
-    (() => {
-      const status = getWorkloadStatus(
-        stats.appointmentsToday,
-        thresholds,
-      );
-      const display = WORKLOAD_DISPLAY[status];
-      const StatusIcon = WORKLOAD_ICON[status];
+        <div className="flex w-full justify-start">
+          {!loading &&
+            (() => {
+              const status = getWorkloadStatus(
+                stats.appointmentsToday,
+                thresholds,
+              );
+              const display = WORKLOAD_DISPLAY[status];
+              const StatusIcon = WORKLOAD_ICON[status];
 
-      return (
-        <div
-          className={`flex items-center gap-3 rounded-xl  py-3 pl-4 pr-5 shadow-sm ${display.bgColor}`}
-        >
-          <span
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/70 ${display.textColor}`}
-          >
-            <StatusIcon className="h-4 w-4" strokeWidth={2} />
-          </span>
-          <p className="text-sm text-slate-700">
-            {greeting}
-            {doctorName ? `, ${doctorName}` : ", Doctor"}
-            <span className="text-slate-400"> &mdash; </span>
-            <span className={`font-semibold ${display.textColor}`}>
-              {display.label}
-            </span>
-            <span className="text-slate-500">
-              , {stats.appointmentsToday} appointments today
-            </span>
-          </p>
+              return (
+                <div
+                  className={`flex items-center gap-3 rounded-xl  py-3 pl-4 pr-5 shadow-sm ${display.bgColor}`}
+                >
+                  <span
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/70 ${display.textColor}`}
+                  >
+                    <StatusIcon className="h-4 w-4" strokeWidth={2} />
+                  </span>
+                  <p className="text-sm text-slate-700">
+                    {greeting}
+                    {doctorName ? `, ${doctorName}` : ", Doctor"}
+                    <span className="text-slate-400"> &mdash; </span>
+                    <span className={`font-semibold ${display.textColor}`}>
+                      {display.label}
+                    </span>
+                    <span className="text-slate-500">
+                      , {stats.appointmentsToday} appointments today
+                    </span>
+                  </p>
+                </div>
+              );
+            })()}
         </div>
-      );
-    })()}
-</div>
 
         {loading ? (
           <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2 shadow-lg backdrop-blur-sm">
@@ -590,8 +608,7 @@ export default function DoctorDashboardTab({
                               {a.startTime}
                             </p>
                             <span
-                              className={`inline-block mt-0.5 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wider ${
-                                a.status === "completed"
+                              className={`inline-block mt-0.5 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wider ${a.status === "completed"
                                   ? "bg-slate-100 text-slate-600"
                                   : a.status === "checked_in"
                                     ? "bg-emerald-50 text-emerald-700"
@@ -600,7 +617,7 @@ export default function DoctorDashboardTab({
                                       : a.status === "cancelled"
                                         ? "bg-slate-100 text-slate-400"
                                         : "bg-[#7da3b3]/10 text-[#3f6274]"
-                              }`}
+                                }`}
                             >
                               {statusLabel}
                             </span>
@@ -671,69 +688,6 @@ export default function DoctorDashboardTab({
               </div>
             </div>
 
-            {/* Billing Snapshot — hardcoded for now, see HARDCODED_BILLING_SNAPSHOT above */}
-            <div className="rounded-2xl border border-slate-900/5 bg-white/90 shadow-lg backdrop-blur-sm overflow-hidden">
-              <div className="flex items-center justify-between border-b border-slate-100 p-5">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7da3b3]/10 text-[#7da3b3]">
-                    <Wallet className="h-4 w-4" />
-                  </span>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                    Billing Snapshot
-                  </h3>
-                </div>
-                <button
-                  onClick={() => onNavigate?.("settings")}
-                  className="flex items-center gap-1 text-xs font-semibold text-[#7da3b3] hover:underline"
-                >
-                  View billing <ArrowRight className="h-3 w-3" />
-                </button>
-              </div>
-
-              <div className="grid gap-4 p-5 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-slate-400">
-                      Collected Today
-                    </p>
-                    <Receipt className="h-3.5 w-3.5 text-emerald-600" />
-                  </div>
-                  <p className="mt-1.5 text-lg font-bold text-slate-900">
-                    NPR{" "}
-                    {centsToDisplay(
-                      HARDCODED_BILLING_SNAPSHOT.collectedTodayCents,
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-rose-500">
-                      Outstanding Dues
-                    </p>
-                    <TrendingDown className="h-3.5 w-3.5 text-rose-600" />
-                  </div>
-                  <p className="mt-1.5 text-lg font-bold text-rose-700">
-                    NPR{" "}
-                    {centsToDisplay(
-                      HARDCODED_BILLING_SNAPSHOT.outstandingDuesCents,
-                    )}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-slate-400">
-                      Patients With Dues
-                    </p>
-                    <User className="h-3.5 w-3.5 text-slate-500" />
-                  </div>
-                  <p className="mt-1.5 text-lg font-bold text-slate-900">
-                    {HARDCODED_BILLING_SNAPSHOT.patientsWithDues}
-                  </p>
-                </div>
-              </div>
-            </div>
           </>
         )}
       </div>
