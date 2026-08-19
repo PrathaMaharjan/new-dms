@@ -297,6 +297,12 @@ export default function DoctorSettingsTab() {
       return;
     }
 
+    const cleanPhone = profile.phone.trim().replace(/[\s-]/g, "");
+    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
+      setErrorMsg("Please enter a valid 10-digit phone number starting with 9 (e.g. 9812345678).");
+      return;
+    }
+
     setSavingSection("profile");
     try {
       const [firstName, ...lastNameParts] = profile.name.trim().split(" ");
@@ -486,8 +492,14 @@ export default function DoctorSettingsTab() {
                 <h2 className="truncate text-lg font-semibold text-slate-900">
                   {profile.name || "Your Name"}
                 </h2>
-                <p className="mt-0.5 text-[0.85rem] text-slate-500">
-                  {profile.specialization}
+                <p className="mt-0.5 flex items-center gap-2 text-[0.85rem] text-slate-500">
+                  <span>{profile.specialization}</span>
+                  {(profile.age || calculateAgeFromDob(profile.dob)) ? (
+                    <>
+                      <span>•</span>
+                      <span>{profile.age || calculateAgeFromDob(profile.dob)} yrs old</span>
+                    </>
+                  ) : null}
                 </p>
               </div>
             </div>
@@ -534,6 +546,8 @@ export default function DoctorSettingsTab() {
                     type="tel"
                     value={profile.phone}
                     onChange={(e) => update("phone", e.target.value)}
+                    placeholder="e.g. 9812345678"
+                    maxLength={10}
                     className={inputClass}
                   />
                 </label>
@@ -587,18 +601,6 @@ export default function DoctorSettingsTab() {
                   />
                 </label>
 
-                <label className="block">
-                  <FieldLabel icon={<User className="h-3.5 w-3.5" strokeWidth={2} />}>
-                    Age
-                  </FieldLabel>
-                  <input
-                    type="number"
-                    min={0}
-                    value={profile.age}
-                    onChange={(e) => update("age", e.target.value)}
-                    className={inputClass}
-                  />
-                </label>
 
                 <label className="block">
                   <FieldLabel icon={<Cake className="h-3.5 w-3.5" strokeWidth={2} />}>
