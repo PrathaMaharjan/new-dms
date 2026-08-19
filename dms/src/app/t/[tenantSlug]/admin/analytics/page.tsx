@@ -43,13 +43,23 @@ type ChartView = "comparison" | "net";
 const ITEMS_PER_PAGE = 6;
 
 const DEFAULT_CATEGORY_COLORS: Record<string, string> = {
+    inventory: "#345263",
     Inventory: "#345263",
+    wastage: "#e17a7a",
     Wastage: "#e17a7a",
+    "staff & lab": "#7da3b3",
     "Staff & Lab": "#7da3b3",
+    utilities: "#c9a15a",
     Utilities: "#c9a15a",
+    electricity: "#c9a15a",
+    rent: "#8b5cf6",
     Rent: "#8b5cf6",
+    supplies: "#10b981",
     Supplies: "#10b981",
+    maintenance: "#f59e0b",
     Maintenance: "#f59e0b",
+    salary: "#3b82f6",
+    Salary: "#3b82f6",
 };
 
 const PALETTE = ["#345263", "#7da3b3", "#e17a7a", "#c9a15a", "#8b5cf6", "#10b981", "#f59e0b", "#06b6d4", "#ec4899"];
@@ -59,7 +69,6 @@ const CHART_VIEWS: { value: ChartView; label: string }[] = [
     { value: "net", label: "Net Position" },
 ];
 
-// Net Position color — consistent yellow, matching across both charts
 const NET_COLOR = "#eab308";
 const PROFIT_COLOR = "#10b981";
 const LOSS_COLOR = "#e11d48";
@@ -71,7 +80,6 @@ function getCategoryColor(categoryName: string, index: number): string {
     return PALETTE[index % PALETTE.length];
 }
 
-// Yellow dot on the Net Position line, with a small green/red triangle showing profit vs loss for that period
 function NetDot(props: any) {
     const { cx, cy, value } = props;
     if (cx == null || cy == null) return null;
@@ -140,7 +148,6 @@ export default function ClinicCostAnalyticsPage() {
     const [monthlyRows, setMonthlyRows] = useState<MonthlyBreakdownRow[]>([]);
     const [totalTableRows, setTotalTableRows] = useState(0);
 
-    // Fetch outlets on mount to get location context
     useEffect(() => {
         async function fetchOutlets() {
             try {
@@ -161,43 +168,67 @@ export default function ClinicCostAnalyticsPage() {
         try {
             const params = new URLSearchParams();
             params.set("range", timeframe);
-            if (activeLocationId) {
-                params.set("locationId", activeLocationId);
-            }
+            // if (activeLocationId) {
+            //     params.set("locationId", activeLocationId);
+            // }
             params.set("offset", String((tablePage - 1) * ITEMS_PER_PAGE));
 
-            const res = await axios.get(`/api/analytics/getAll?${params.toString()}`);
+            // Fixed: pass params.toString() instead of just activeLocationId
+            const res = await axios.get(`/api/analytics/getAll?${params.toString()}&location=${activeLocationId}`);
             if (res.data?.success && res.data?.data) {
                 const data = res.data.data;
+
                 if (data.summary) {
-                    setSummary(data.summary);
+                    setSummary({
+                        totalCostCents: data.summary.totalCostCents ?? 0,
+                        totalRevenueCents: data.summary.totalRevenueCents ?? 0,
+                        netPositionCents: data.summary.netPositionCents ?? 0,
+                        costRatioPercent: data.summary.costRatioPercent ?? 0,
+                    });
                 }
+
                 if (Array.isArray(data.costRevenueTrend)) {
                     setTrendData(
                         data.costRevenueTrend.map((t: any) => {
-                            const revenue = (t.revenueCents ?? 0) / 100;
-                            const cost = (t.costCents ?? 0) / 100;
+                            const revenueCents = t.revenueCents ?? 0;
+                            const costCents = t.costCents ?? 0;
+                            const netCents = t.netCents ?? (revenueCents - costCents);
+
                             return {
-                                label: t.label,
-                                Cost: cost,
-                                Revenue: revenue,
-                                Net: (t.netCents ?? (t.revenueCents ?? 0) - (t.costCents ?? 0)) / 100,
+                                label: t.label || "",
+                                Cost: costCents / 100,
+                                Revenue: revenueCents / 100,
+                                Net: netCents / 100,
                             };
                         })
                     );
                 }
+
                 if (Array.isArray(data.costBreakdown)) {
                     setCostBreakdown(
                         data.costBreakdown.map((c: any) => ({
-                            categoryName: c.categoryName,
+                            categoryName: c.categoryName || "Uncategorized",
                             costCents: c.costCents ?? c.amountCents ?? 0,
                             percentOfMax: c.percentOfMax ?? 0,
                         }))
                     );
                 }
-                if (data.monthlyBreakdown && Array.isArray(data.monthlyBreakdown.rows)) {
-                    setMonthlyRows(data.monthlyBreakdown.rows);
-                    setTotalTableRows(data.monthlyBreakdown.pagination?.total ?? data.monthlyBreakdown.rows.length);
+
+                if (data.monthlyBreakdown) {
+                    const rows = Array.isArray(data.monthlyBreakdown.rows) ? data.monthlyBreakdown.rows : [];
+                    setMonthlyRows(
+                        rows.map((row: any) => ({
+                            label: row.label || "",
+                            revenueCents: row.revenueCents ?? 0,
+                            categoryCosts: row.categoryCosts || {},
+                            totalCostCents: row.totalCostCents ?? 0,
+                            netCents: row.netCents ?? (row.revenueCents ?? 0) - (row.totalCostCents ?? 0),
+                        }))
+                    );
+
+                    setTotalTableRows(
+                        data.monthlyBreakdown.pagination?.total ?? rows.length
+                    );
                 }
             }
         } catch (err: any) {
@@ -231,21 +262,14 @@ export default function ClinicCostAnalyticsPage() {
     ];
 
     const categoryIcon = (category: string) => {
-        switch (category) {
-            case "Inventory":
-                return Boxes;
-            case "Wastage":
-                return Trash2;
-            case "Staff & Lab":
-                return Users;
-            case "Utilities":
-                return Zap;
-            default:
-                return Tag;
-        }
+        const lower = category.toLowerCase();
+        if (lower.includes("inventory")) return Boxes;
+        if (lower.includes("wastage")) return Trash2;
+        if (lower.includes("staff") || lower.includes("lab") || lower.includes("salary")) return Users;
+        if (lower.includes("utility") || lower.includes("electricity")) return Zap;
+        return Tag;
     };
 
-    // Dynamically collect unique category column names for the monthly breakdown table
     const tableCategories = useMemo(() => {
         const set = new Set<string>();
         costBreakdown.forEach((c) => set.add(c.categoryName));
@@ -258,14 +282,13 @@ export default function ClinicCostAnalyticsPage() {
     }, [costBreakdown, monthlyRows]);
 
     return (
-        <div className="relative min-h-screen overflow-hidden bg-slate-50">
+        <div className="relative min-h-screen h-screen overflow-y-auto bg-slate-50">
             {/* Header */}
             <div className="sticky top-0 z-20 flex w-full flex-col gap-4 bg-white px-6 py-6 sm:flex-row sm:items-center sm:justify-between lg:px-10 border-b border-slate-900/5 shadow-sm">
                 <div>
                     <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#345263] sm:text-3xl">
                         Cost Analytics
                     </h1>
-
                 </div>
 
                 <div className="relative">
@@ -318,7 +341,6 @@ export default function ClinicCostAnalyticsPage() {
 
                         {/* Charts row */}
                         <div className="mt-8 grid gap-4 lg:grid-cols-3">
-                            {/* Chart Card — toggle between Cost vs Revenue and Net Position views */}
                             <div className="lg:col-span-2 rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm">
                                 <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                                     <div className="flex items-center gap-2">
@@ -348,7 +370,6 @@ export default function ClinicCostAnalyticsPage() {
                                             </div>
                                         )}
 
-                                        {/* View toggle */}
                                         <div className="flex items-center gap-1 rounded-full border border-slate-900/10 bg-slate-50/60 p-1">
                                             {CHART_VIEWS.map((v) => (
                                                 <button
@@ -429,7 +450,6 @@ export default function ClinicCostAnalyticsPage() {
                                                         backgroundColor: "#ffffff",
                                                     }}
                                                 />
-                                                {/* Net Position line — consistent yellow, with a per-point green/red triangle showing profit vs loss */}
                                                 <Line
                                                     type="monotone"
                                                     dataKey="Net"
@@ -497,7 +517,7 @@ export default function ClinicCostAnalyticsPage() {
                                         return (
                                             <div key={c.categoryName}>
                                                 <div className="mb-1 flex items-center justify-between text-xs">
-                                                    <span className="flex items-center gap-1.5 truncate pr-2 font-semibold text-slate-700">
+                                                    <span className="flex items-center gap-1.5 truncate pr-2 font-semibold text-slate-700 capitalize">
                                                         <Icon className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
                                                         {c.categoryName}
                                                     </span>
@@ -545,7 +565,7 @@ export default function ClinicCostAnalyticsPage() {
                                                 Revenue
                                             </th>
                                             {tableCategories.map((cat) => (
-                                                <th key={cat} className="px-4 py-3 text-right text-[0.7rem] font-medium uppercase tracking-wide text-slate-500">
+                                                <th key={cat} className="px-4 py-3 text-right text-[0.7rem] font-medium uppercase tracking-wide text-slate-500 capitalize">
                                                     {cat}
                                                 </th>
                                             ))}
