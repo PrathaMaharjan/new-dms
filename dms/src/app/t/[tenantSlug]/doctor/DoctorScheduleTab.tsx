@@ -96,7 +96,7 @@ export default function DoctorScheduleTab() {
         } catch (e) {}
       }
 
-      // 3. Find matching doctor and load their real schedule (matching DoctorSettingsTab)
+   
       let targetDocId = "";
       let fetchedSchedule: any[] | null = null;
 

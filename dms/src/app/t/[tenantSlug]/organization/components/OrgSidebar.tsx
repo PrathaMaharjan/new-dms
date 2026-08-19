@@ -22,7 +22,9 @@ import {
   Menu,
   X,
   ChevronDown,
+  Building2,
 } from "lucide-react";
+import { getImageUrl } from "@/lib/cloudinary/storage";
 
 type NavLeaf = {
   label: string;
@@ -92,11 +94,63 @@ function formatTenantSlug(slug?: string): string {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-interface OrgSidebarProps {
-  inventoryEnabled?: boolean;
+function TenantLogo({
+  logoUrl,
+  name,
+  size = "md",
+}: {
+  logoUrl?: string | null;
+  name: string;
+  size?: "sm" | "md" | "lg";
+}) {
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    setHasError(false);
+  }, [logoUrl]);
+
+  const formattedUrl = useMemo(() => getImageUrl(logoUrl), [logoUrl]);
+
+  const dimensions =
+    size === "sm"
+      ? "h-14 max-w-[220px]"
+      : size === "md"
+        ? "h-16 max-w-[260px]"
+        : "h-20 max-w-[280px]";
+
+  const iconDimensions =
+    size === "sm" ? "h-14 w-14 text-xl" : size === "md" ? "h-16 w-16 text-2xl" : "h-20 w-20 text-3xl";
+
+  if (formattedUrl && !hasError) {
+    return (
+      <div className={`relative ${dimensions} w-full shrink-0 flex items-center justify-center`}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={formattedUrl}
+          alt={name}
+          className="h-full w-auto max-w-full object-contain"
+          onError={() => setHasError(true)}
+        />
+      </div>
+    );
+  }
+
+  const initial = name ? name.trim().charAt(0).toUpperCase() : "";
+
+  return (
+    <div className={`flex ${iconDimensions} shrink-0 items-center justify-center rounded-xl bg-white/15 border border-white/20 text-white font-bold shadow-xs mx-auto`}>
+      {initial || <Building2 className={size === "sm" ? "h-5 w-5 text-white" : "h-7 w-7 text-white"} />}
+    </div>
+  );
 }
 
-function OrgSidebar({ inventoryEnabled = true }: OrgSidebarProps) {
+interface OrgSidebarProps {
+  inventoryEnabled?: boolean;
+  logoUrl?: string | null;
+  tenantName?: string;
+}
+
+function OrgSidebar({ inventoryEnabled = true, logoUrl, tenantName }: OrgSidebarProps) {
   const pathname = usePathname();
   const params = useParams<{ tenantSlug: string }>();
   const router = useRouter();
@@ -156,20 +210,18 @@ function OrgSidebar({ inventoryEnabled = true }: OrgSidebarProps) {
     }
   }
 
-  const displayTitle = formatTenantSlug(params.tenantSlug);
+  const displayTitle = tenantName || formatTenantSlug(params.tenantSlug);
 
   return (
     <>
       {/* Mobile top bar toggle (only visible below lg) */}
-      <div className="flex items-center justify-between bg-[#3f6274] px-4 py-3 lg:hidden">
-        <span className="text-lg font-semibold text-white capitalize truncate" title={displayTitle}>
-          {displayTitle}
-        </span>
+      <div className="sticky top-0 z-30 flex items-center justify-center bg-[#3f6274] px-4 py-3 shadow-sm lg:hidden w-full relative">
+        <TenantLogo logoUrl={logoUrl} name={displayTitle} size="sm" />
         <button
           type="button"
           onClick={() => setOpen(true)}
           aria-label="Open menu"
-          className="rounded-md p-2 text-white hover:bg-white/10"
+          className="absolute right-4 top-1/2 -translate-y-1/2 rounded-lg p-2 text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
         >
           <Menu className="h-6 w-6" strokeWidth={2} />
         </button>
@@ -178,7 +230,7 @@ function OrgSidebar({ inventoryEnabled = true }: OrgSidebarProps) {
       {/* Backdrop, mobile only, shown when sidebar is open */}
       {open && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs lg:hidden transition-opacity"
           onClick={() => setOpen(false)}
         />
       )}
@@ -188,29 +240,27 @@ function OrgSidebar({ inventoryEnabled = true }: OrgSidebarProps) {
           - Desktop (lg+): sticky column pinned to viewport height, part of normal flex layout */}
       <aside
         className={[
-          "flex w-70 shrink-0 flex-col bg-[#3f6274] py-6",
+          "flex w-70 shrink-0 flex-col bg-[#3f6274] py-6 shadow-2xl lg:shadow-none",
           "fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ease-in-out",
           open ? "translate-x-0" : "-translate-x-full",
           "lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 lg:transition-none",
         ].join(" ")}
       >
         {/* Brand */}
-        <div className="flex items-center justify-between gap-1 px-6">
-          <span className="text-2xl font-semibold tracking-tight text-white capitalize truncate" title={displayTitle}>
-            {displayTitle}
-          </span>
+        <div className="flex items-center justify-center gap-3 px-6 relative">
+          <TenantLogo logoUrl={logoUrl} name={displayTitle} size="lg" />
           {/* Close button, mobile only */}
           <button
             type="button"
             onClick={() => setOpen(false)}
             aria-label="Close menu"
-            className="rounded-md p-1 text-white hover:bg-white/10 lg:hidden"
+            className="absolute right-6 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-white hover:bg-white/10 lg:hidden shrink-0 cursor-pointer"
           >
             <X className="h-5 w-5" strokeWidth={2} />
           </button>
         </div>
         <div className="px-6">
-          <hr className="border-white/15 mt-7" />
+          <hr className="border-white/15 mt-5" />
         </div>
 
         {/* Nav */}
@@ -244,9 +294,8 @@ function OrgSidebar({ inventoryEnabled = true }: OrgSidebarProps) {
                   </button>
 
                   <div
-                    className={`grid overflow-hidden transition-all duration-200 ease-in-out ${
-                      isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
-                    }`}
+                    className={`grid overflow-hidden transition-all duration-200 ease-in-out ${isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                      }`}
                   >
                     <div className="overflow-hidden">
                       {entry.items.map(({ label, href, icon: Icon, exact }) => {

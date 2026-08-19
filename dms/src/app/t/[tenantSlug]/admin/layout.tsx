@@ -26,11 +26,13 @@ export default async function AdminLayout({
 
   const orgResult = await resolveOrgBySlug(tenantSlug);
   const inventoryEnabled = orgResult.success ? orgResult.org.inventoryEnabled : false;
+  const logoUrl = orgResult.success ? orgResult.org.photoUrl : null;
+  const tenantName = orgResult.success ? orgResult.org.name : undefined;
 
   return (
-    <div className="flex">
-      <Sidebar inventoryEnabled={inventoryEnabled} />
-      <main className="min-h-screen flex-1 bg-slate-50">{children}</main>
+    <div className="flex flex-col lg:flex-row min-h-screen bg-slate-50">
+      <Sidebar inventoryEnabled={inventoryEnabled} logoUrl={logoUrl} tenantName={tenantName} />
+      <main className="flex-1 min-w-0 bg-slate-50">{children}</main>
     </div>
   );
 }

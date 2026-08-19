@@ -36,7 +36,7 @@ import {
     Receipt,
     TrendingDown,
 } from "lucide-react";
-import CommissionStatCard from "./componets/commsion";
+import CommissionStatCard from "./components/commission";
 
 const STATUS_COLORS: Record<string, string> = {
     Confirmed: "#7da3b3",
@@ -558,63 +558,7 @@ export default function DoctorDashboardTab({
                             </div>
                         </div>
 
-                        {/* Billing Snapshot — hardcoded for now, see HARDCODED_BILLING_SNAPSHOT above */}
-                        <div className="rounded-2xl border border-slate-900/5 bg-white/90 shadow-lg backdrop-blur-sm overflow-hidden">
-                            <div className="flex items-center justify-between border-b border-slate-100 p-5">
-                                <div className="flex items-center gap-2">
-                                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7da3b3]/10 text-[#7da3b3]">
-                                        <Wallet className="h-4 w-4" />
-                                    </span>
-                                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                                        Billing Snapshot
-                                    </h3>
-                                </div>
-                                <button
-                                    onClick={() => onNavigate?.("settings")}
-                                    className="flex items-center gap-1 text-xs font-semibold text-[#7da3b3] hover:underline"
-                                >
-                                    View billing <ArrowRight className="h-3 w-3" />
-                                </button>
-                            </div>
-
-                            <div className="grid gap-4 p-5 sm:grid-cols-3">
-                                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-slate-400">
-                                            Collected Today
-                                        </p>
-                                        <Receipt className="h-3.5 w-3.5 text-emerald-600" />
-                                    </div>
-                                    <p className="mt-1.5 text-lg font-bold text-slate-900">
-                                        NPR {centsToDisplay(HARDCODED_BILLING_SNAPSHOT.collectedTodayCents)}
-                                    </p>
-                                </div>
-
-                                <div className="rounded-xl border border-rose-100 bg-rose-50/50 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-rose-500">
-                                            Outstanding Dues
-                                        </p>
-                                        <TrendingDown className="h-3.5 w-3.5 text-rose-600" />
-                                    </div>
-                                    <p className="mt-1.5 text-lg font-bold text-rose-700">
-                                        NPR {centsToDisplay(HARDCODED_BILLING_SNAPSHOT.outstandingDuesCents)}
-                                    </p>
-                                </div>
-
-                                <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <p className="text-[0.7rem] font-semibold uppercase tracking-wider text-slate-400">
-                                            Patients With Dues
-                                        </p>
-                                        <User className="h-3.5 w-3.5 text-slate-500" />
-                                    </div>
-                                    <p className="mt-1.5 text-lg font-bold text-slate-900">
-                                        {HARDCODED_BILLING_SNAPSHOT.patientsWithDues}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
+                        
                     </>
                 )}
             </div>

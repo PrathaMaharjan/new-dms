@@ -47,22 +47,19 @@ export interface TreatedPatient {
   lastVisit: string;
   totalVisits: number;
   history: TreatmentRecord[];
-  // TODO: hardcoded placeholder until billing/ledger data is exposed via API.
-  // Replace getHardcodedBalanceDueCents() with the real balanceDueCents
-  // value returned from the backend once that join/column exists.
+
   balanceDueCents: number;
 }
 
-// TEMPORARY: deterministic fake balance so the UI has something to show.
-// Same patient always gets the same demo value across re-renders.
+
 function getHardcodedBalanceDueCents(id: string): number {
   let hash = 0;
   for (let i = 0; i < id.length; i++) {
     hash = (hash * 31 + id.charCodeAt(i)) % 997;
   }
-  // ~1/3 of patients show as "Settled", the rest show a fake due amount.
+
   if (hash % 3 === 0) return 0;
-  return 50000 + (hash % 20) * 10000; // e.g. NPR 500 - 2400
+  return 50000 + (hash % 20) * 10000;
 }
 
 function centsToDisplay(cents: number) {
