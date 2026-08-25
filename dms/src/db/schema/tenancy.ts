@@ -168,7 +168,7 @@ export const providerProfiles = pgTable("provider_profiles", {
     .unique()
     .references(() => users.id),
   photoUrl: text("photo_url"),
-  specialization: specializationEnum("specialization"),
+  specialization: text("specialization"),
   qualification: text("qualification"),
   education: text("education"),
   bio: text("bio"),
@@ -196,7 +196,10 @@ export const providerSchedules = pgTable(
     // Nullable now - a day marked isOnLeave has no real hours to store.
     startTime: time("start_time"),
     endTime: time("end_time"),
+    breakStartTime: time("break_start_time"),
+    breakEndTime: time("break_end_time"),
     isOnLeave: boolean("is_on_leave").notNull().default(false),
+    bufferTime: integer("buffer_time").notNull().default(30),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => ({

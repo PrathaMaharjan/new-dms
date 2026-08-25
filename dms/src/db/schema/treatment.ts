@@ -39,7 +39,7 @@ export const treatments = pgTable(
       .notNull()
       .references(() => locations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    category: treatmentCategoryEnum("category").notNull(),
+    category: text("category").notNull(),
     durationMinutes: integer("duration_minutes").notNull(),
     priceCents: integer("price_cents").notNull(),
     sessions: integer("sessions").notNull().default(1),

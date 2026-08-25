@@ -15,6 +15,8 @@ import {
   BriefcaseMedical,
   Stethoscope,
   CalendarCheck,
+  Users,
+  Award,
   TrendingUp,
   TrendingDown,
   ImagePlus,
@@ -41,6 +43,7 @@ import {
 } from "lucide-react";
 import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
 import WorkloadConfigCard from "../../organization/doctors/components/WorkloadConfigCard";
+import DoctorScheduleEditor from "../../doctor/DoctorScheduleEditor";
 
 const SPECIALIZATIONS = [
   "General Dentistry",
@@ -49,6 +52,7 @@ const SPECIALIZATIONS = [
   "Periodontics",
   "Oral Surgery",
   "Pediatric Dentistry",
+  "Prosthodontics",
 ];
 
 const SPECIALIZATION_MAP_BACKEND: Record<string, string> = {
@@ -58,6 +62,7 @@ const SPECIALIZATION_MAP_BACKEND: Record<string, string> = {
   "Periodontics": "periodontics",
   "Oral Surgery": "oral_surgery",
   "Pediatric Dentistry": "pediatric_dentistry",
+  "Prosthodontics": "prosthodontics",
 };
 
 const SPECIALIZATION_MAP_FRONTEND: Record<string, string> = {
@@ -202,6 +207,41 @@ export default function DoctorsPage() {
   const [doctorToDelete, setDoctorToDelete] = useState<Doctor | null>(null);
   const [query, setQuery] = useState("");
   const [specializationFilter, setSpecializationFilter] = useState("All");
+  const [specializationsList, setSpecializationsList] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("dms_custom_specializations");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            const set = new Set([...SPECIALIZATIONS, ...parsed]);
+            return Array.from(set);
+          }
+        }
+      } catch (e) { }
+    }
+    return SPECIALIZATIONS;
+  });
+  const [isAddingSpec, setIsAddingSpec] = useState(false);
+  const [newSpecInput, setNewSpecInput] = useState("");
+
+  const handleAddSpecialization = () => {
+    const trimmed = newSpecInput.trim();
+    if (!trimmed) return;
+    const formatted = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    if (!specializationsList.includes(formatted)) {
+      const updated = [...specializationsList, formatted];
+      setSpecializationsList(updated);
+      try {
+        const customOnly = updated.filter((s) => !SPECIALIZATIONS.includes(s));
+        localStorage.setItem("dms_custom_specializations", JSON.stringify(customOnly));
+      } catch (e) { }
+    }
+    update("specialization", formatted);
+    setIsAddingSpec(false);
+    setNewSpecInput("");
+  };
+
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
   const [modalOpen, setModalOpen] = useState(false);
@@ -214,7 +254,7 @@ export default function DoctorsPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [selectedDoctor, setSelectedDoctor] = useState<Doctor | null>(null);
-  const [profileTab, setProfileTab] = useState<"detail" | "patients" | "appointments">(
+  const [profileTab, setProfileTab] = useState<"detail" | "schedule" | "patients" | "appointments">(
     "detail"
   );
 
@@ -223,6 +263,7 @@ export default function DoctorsPage() {
   const [appointmentsLoading, setAppointmentsLoading] = useState(false);
   const [patients, setPatients] = useState<any[]>([]);
   const [patientsLoading, setPatientsLoading] = useState(false);
+  const [todayAppointmentsCount, setTodayAppointmentsCount] = useState<number>(0);
 
   async function loadData() {
     try {
@@ -236,18 +277,40 @@ export default function DoctorsPage() {
       }
 
 
-      const res = await axios.get("/api/doctor", {
-        params: locId ? { locationId: locId } : undefined,
-      });
+      const [res, apptsRes] = await Promise.all([
+        axios.get("/api/doctor", {
+          params: locId ? { locationId: locId } : undefined,
+        }),
+        axios.get("/api/appoments", {
+          params: locId ? { locationId: locId } : undefined,
+        }).catch(() => null),
+      ]);
+
+      if (apptsRes?.data?.success && Array.isArray(apptsRes.data.data?.appointments)) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const count = apptsRes.data.data.appointments.filter((a: any) => {
+          if (a.status === "cancelled") return false;
+          const aDate = a.date || (a.startTime ? new Date(a.startTime).toISOString().slice(0, 10) : "");
+          return aDate === todayStr;
+        }).length;
+        setTodayAppointmentsCount(count);
+      } else {
+        setTodayAppointmentsCount(0);
+      }
+
       if (res.data?.success) {
         const dbDoctors = res.data.data?.doctors || [];
         const mapped = dbDoctors.map((d: any, index: number) => {
+          const specName = SPECIALIZATION_MAP_FRONTEND[d.specialization] || d.specialization || "General Dentistry";
+          if (specName && !SPECIALIZATIONS.includes(specName)) {
+            setSpecializationsList((prev) => (prev.includes(specName) ? prev : [...prev, specName]));
+          }
           const rawDob = formatDob(pickField(d, "dateOfBirth", "dob", "date_of_birth"));
           const computedAge = calculateAgeFromDob(rawDob);
           return {
             id: d.id,
             name: d.name,
-            specialization: SPECIALIZATION_MAP_FRONTEND[d.specialization] || "General Dentistry",
+            specialization: specName,
             experience: d.yearsOfExperience !== undefined && d.yearsOfExperience !== null ? String(d.yearsOfExperience) : "0",
             email: d.email,
             phone: d.phone || "",
@@ -537,7 +600,7 @@ export default function DoctorsPage() {
           name: form.name,
           email: form.email,
           phone: form.phone,
-          specialization: SPECIALIZATION_MAP_BACKEND[form.specialization] || "general_dentistry",
+          specialization: SPECIALIZATION_MAP_BACKEND[form.specialization] || form.specialization || "General Dentistry",
           qualification: form.qualification,
           yearsOfExperience: parseInt(form.experience, 10) || 0,
         };
@@ -571,13 +634,13 @@ export default function DoctorsPage() {
           setSelectedDoctor((prev) =>
             prev && prev.id === editingId
               ? {
-                  ...prev,
-                  ...rest,
-                  experience: form.experience,
-                  imageUrl: updatedDocPhoto || prev.imageUrl,
-                  education: educationList,
-                  experienceNotes: experienceNotesList,
-                }
+                ...prev,
+                ...rest,
+                experience: form.experience,
+                imageUrl: updatedDocPhoto || prev.imageUrl,
+                education: educationList,
+                experienceNotes: experienceNotesList,
+              }
               : prev
           );
         }
@@ -593,7 +656,7 @@ export default function DoctorsPage() {
           name: form.name,
           email: form.email,
           password: form.password,
-          specialization: SPECIALIZATION_MAP_BACKEND[form.specialization] || "general_dentistry",
+          specialization: SPECIALIZATION_MAP_BACKEND[form.specialization] || form.specialization || "General Dentistry",
           yearsOfExperience: parseInt(form.experience, 10) || 0,
           employmentType: "full_time",
         };
@@ -657,20 +720,29 @@ export default function DoctorsPage() {
     }
   }
 
+  const totalPatients = doctors.reduce((acc, d) => acc + (d.patients || 0), 0);
+  const activeSpecializations = new Set(doctors.map((d) => d.specialization).filter(Boolean)).size;
+
   const stats = [
     {
       icon: Stethoscope,
       label: "Total Doctors",
       value: String(doctors.length),
-      trend: "+2 this month",
-      trendUp: true,
     },
     {
       icon: CalendarCheck,
       label: "Appointments Today",
-      value: "38",
-      trend: "Decreased by 6%",
-      trendUp: false,
+      value: String(todayAppointmentsCount),
+    },
+    {
+      icon: Users,
+      label: "Total Patients Served",
+      value: totalPatients.toLocaleString(),
+    },
+    {
+      icon: Award,
+      label: "Specializations",
+      value: String(activeSpecializations),
     },
   ];
 
@@ -685,18 +757,20 @@ export default function DoctorsPage() {
 
 
 
-      <div className="sticky top-0 z-20 w-full bg-white px-6 py-6 lg:px-10">
+      <div className="sticky top-0 z-20 w-full border-b border-slate-100 bg-white px-4 py-4 sm:px-6 sm:py-6 lg:px-10">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight text-[#345263] sm:text-3xl">
+            Doctors
+          </h1>
 
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#345263] sm:text-3xl">
-          Doctors
-        </h1>
+        
+        </div>
       </div>
 
-      <div className="relative mx-auto max-w-[1600px] px-6 pb-10 pt-6 lg:px-10">
+      <div className="relative mx-auto max-w-[1600px] px-4 pb-10 pt-6 sm:px-6 lg:px-10">
         {/* Stats */}
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {stats.map((stat) => {
-            const TrendIcon = stat.trendUp ? TrendingUp : TrendingDown;
             return (
               <div
                 key={stat.label}
@@ -712,8 +786,6 @@ export default function DoctorsPage() {
                 <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
                   {stat.value}
                 </p>
-
-
               </div>
             );
           })}
@@ -747,7 +819,7 @@ export default function DoctorsPage() {
                   className="appearance-none rounded-full border border-slate-900/10 bg-white py-2.5 pl-9 pr-8 text-[0.9rem] text-slate-900 outline-none focus:border-[#7da3b3]"
                 >
                   <option value="All">All specializations</option>
-                  {SPECIALIZATIONS.map((s) => (
+                  {specializationsList.map((s) => (
                     <option key={s} value={s}>
                       {s}
                     </option>
@@ -757,7 +829,7 @@ export default function DoctorsPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <WorkloadConfigCard />
+              
               <button
                 onClick={openAddModal}
                 className="inline-flex items-center gap-2 rounded-full bg-[#749fb1] px-5 py-2.5 text-[0.9rem] font-medium text-white shadow-sm transition-colors hover:bg-[#345263]"
@@ -1005,73 +1077,81 @@ export default function DoctorsPage() {
                   </label>
                 </div>
 
-                {modalMode === "add" && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <label className="block">
-                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
-                        Password
-                      </span>
-                      <div className="relative">
-                        <input
-                          required
-                          type={showPassword ? "text" : "password"}
-                          placeholder="At least 8 characters"
-                          value={form.password}
-                          onChange={(e) => update("password", e.target.value)}
-                          className={`${inputClass} pr-10`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </label>
-                    <label className="block">
-                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
-                        Confirm password
-                      </span>
-                      <div className="relative">
-                        <input
-                          required
-                          type={showConfirmPassword ? "text" : "password"}
-                          placeholder="Re-enter password"
-                          value={form.confirmPassword}
-                          onChange={(e) => update("confirmPassword", e.target.value)}
-                          className={`${inputClass} pr-10`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirmPassword((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </label>
-                  </div>
-                )}
+
 
                 <div className="grid grid-cols-2 gap-4">
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <Stethoscope className="h-3.5 w-3.5" strokeWidth={2} />
-                      Specialization
-                    </span>
-                    <select
-                      value={form.specialization}
-                      onChange={(e) => update("specialization", e.target.value)}
-                      className={inputClass}
-                    >
-                      {SPECIALIZATIONS.map((s) => (
-                        <option key={s}>{s}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="block">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                        <Stethoscope className="h-3.5 w-3.5" strokeWidth={2} />
+                        Specialization
+                      </span>
+                      {!isAddingSpec && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingSpec(true);
+                            setNewSpecInput("");
+                          }}
+                          className="cursor-pointer text-[0.75rem] font-medium text-[#3f6274] hover:underline"
+                        >
+                          + Add new
+                        </button>
+                      )}
+                    </div>
+                    {isAddingSpec ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="e.g. Implantology"
+                          value={newSpecInput}
+                          onChange={(e) => setNewSpecInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddSpecialization();
+                            }
+                          }}
+                          autoFocus
+                          className={`${inputClass} !py-2 text-xs`}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddSpecialization}
+                          className="shrink-0 rounded-xl bg-[#7da3b3] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#345263]"
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsAddingSpec(false)}
+                          className="shrink-0 rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        value={form.specialization}
+                        onChange={(e) => {
+                          if (e.target.value === "__add_new__") {
+                            setIsAddingSpec(true);
+                            setNewSpecInput("");
+                          } else {
+                            update("specialization", e.target.value);
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        {specializationsList.map((s) => (
+                          <option key={s} value={s}>
+                            {s}
+                          </option>
+                        ))}
+                        <option value="__add_new__">+ Add new specialization...</option>
+                      </select>
+                    )}
+                  </div>
                   <label className="block">
                     <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                       <BriefcaseMedical className="h-3.5 w-3.5" strokeWidth={2} />
@@ -1186,12 +1266,62 @@ export default function DoctorsPage() {
                   </span>
                   <textarea
                     rows={3}
-                    placeholder="One entry per line (e.g. Senior Dental Surgeon at ABC Clinic)"
+                    placeholder=""
                     value={form.experienceNotes}
                     onChange={(e) => update("experienceNotes", e.target.value)}
                     className={textareaClass}
                   />
                 </label>
+                {modalMode === "add" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="block">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+                        Password
+                      </span>
+                      <div className="relative">
+                        <input
+                          required
+                          type={showPassword ? "text" : "password"}
+                          placeholder="At least 8 characters"
+                          value={form.password}
+                          onChange={(e) => update("password", e.target.value)}
+                          className={`${inputClass} pr-10`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+                        Confirm password
+                      </span>
+                      <div className="relative">
+                        <input
+                          required
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="Re-enter password"
+                          value={form.confirmPassword}
+                          onChange={(e) => update("confirmPassword", e.target.value)}
+                          className={`${inputClass} pr-10`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+                )}
 
                 {submitError && (
                   <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-[0.85rem] text-rose-700">
@@ -1306,6 +1436,7 @@ export default function DoctorsPage() {
                 {(
                   [
                     { key: "detail", label: "Detail Information" },
+                    { key: "schedule", label: "Working Hours & Breaks" },
                     { key: "patients", label: "Patient History" },
                     { key: "appointments", label: "Appointment History" },
                   ] as const
@@ -1417,6 +1548,17 @@ export default function DoctorsPage() {
                       </div>
                     </>
                   )}
+                </div>
+              )}
+
+              {profileTab === "schedule" && selectedDoctor && (
+                <div className="mt-5 rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm">
+                  <DoctorScheduleEditor
+                    doctorId={selectedDoctor.id}
+                    doctorName={selectedDoctor.name}
+                    compact={true}
+                    onSaveSuccess={() => openProfile(selectedDoctor)}
+                  />
                 </div>
               )}
 

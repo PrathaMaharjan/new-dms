@@ -26,7 +26,6 @@ import {
   ClipboardList,
   BadgeCheck,
   Building,
-  Globe,
   Loader2,
 } from "lucide-react";
 
@@ -69,7 +68,12 @@ function apiLocationToOutlet(loc: any): Outlet {
     status: loc.isActive !== false ? "Active" : "Inactive",
     openingTime: loc.openingTime || "09:00",
     closingTime: loc.closingTime || "18:00",
-    createdDate: loc.createdAt ? new Date(loc.createdAt).toISOString().slice(0, 10) : "",
+    createdDate: loc.createdAt
+      ? (() => {
+        const d = new Date(loc.createdAt);
+        return isNaN(d.getTime()) ? String(loc.createdAt) : d.toISOString().slice(0, 10);
+      })()
+      : "",
     notes: loc.notes || "",
   };
 }
@@ -324,11 +328,9 @@ export default function OutletsPage() {
 
   const stats = useMemo(() => {
     const active = outlets.filter((o) => o.status === "Active").length;
-    const cities = new Set(outlets.map((o) => o.city)).size;
     return [
       { icon: Building2, label: "Total Outlets", value: String(outlets.length) },
       { icon: BadgeCheck, label: "Active Outlets", value: String(active) },
-      { icon: Globe, label: "Cities Covered", value: String(cities) },
     ];
   }, [outlets]);
 
@@ -344,7 +346,7 @@ export default function OutletsPage() {
 
       <div className="relative mx-auto max-w-[1600px] px-6 pb-10 pt-6 lg:px-10">
         {/* Stats */}
-        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
+        <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2">
           {stats.map((stat) => (
             <div
               key={stat.label}
@@ -604,7 +606,7 @@ export default function OutletsPage() {
                     type="text"
                     value={form.name}
                     onChange={(e) => update("name", e.target.value)}
-                    placeholder="Chitwan Dental Home - Bharatpur"
+                    placeholder=""
                     className={inputClass}
                   />
                 </label>

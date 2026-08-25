@@ -835,7 +835,7 @@ export default function PatientsTab() {
             <button
               type="submit"
               disabled={editSubmitting}
-              className="flex items-center gap-1.5 rounded-xl bg-sky-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-50"
+              className="flex items-center gap-1.5 rounded-xl bg-[#7da3b3] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#6b92a2] transition-colors disabled:opacity-50"
             >
               {editSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
               Save Changes

@@ -118,6 +118,8 @@ async function getLocationsQuery(orgId: string) {
       closingTime: locations.closingTime,
       notes: locations.notes,
       isActive: locations.isActive,
+      createdAt: locations.createdAt,
+      managerId: users.id,
       managerName: users.name,
     })
     .from(locations)

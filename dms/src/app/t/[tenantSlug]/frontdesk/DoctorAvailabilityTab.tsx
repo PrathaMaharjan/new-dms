@@ -51,7 +51,14 @@ function formatTime12h(timeStr: string | null): string {
   return `${h12}:${minutes} ${period}`;
 }
 
-function computeSegmentsAndBreak(shiftStart: string, shiftEnd: string, appts: any[] = []) {
+function computeSegmentsAndBreak(
+  shiftStart: string,
+  shiftEnd: string,
+  appts: any[] = [],
+  breakStart?: string | null,
+  breakEnd?: string | null,
+  bufferMinutes: number = 30
+) {
   const toMins = (t: string) => {
     const [h, m] = t.split(":").map(Number);
     return (h || 0) * 60 + (m || 0);
@@ -66,19 +73,28 @@ function computeSegmentsAndBreak(shiftStart: string, shiftEnd: string, appts: an
   const endMins = toMins(shiftEnd);
   if (endMins <= startMins) return { openSlots: 0, segments: [] };
 
-  const mid = Math.floor((startMins + endMins) / 2);
-  const breakStartMins = mid - 30;
-  const breakEndMins = mid + 30;
-
   type Interval = { startMins: number; endMins: number; type: "booked" | "break" };
-  const busyList: Interval[] = [
-    { startMins: breakStartMins, endMins: breakEndMins, type: "break" },
-  ];
+  const busyList: Interval[] = [];
+
+  if (breakStart && breakEnd) {
+    busyList.push({
+      startMins: toMins(breakStart),
+      endMins: toMins(breakEnd),
+      type: "break",
+    });
+  } else if (breakStart === undefined) {
+    const mid = Math.floor((startMins + endMins) / 2);
+    busyList.push({
+      startMins: mid - 30,
+      endMins: mid + 30,
+      type: "break",
+    });
+  }
 
   for (const a of appts) {
     if (a.startTime && a.endTime) {
       const s = toMins(a.startTime);
-      const e = toMins(a.endTime) + 30; // 30 min buffer time after appointment
+      const e = toMins(a.endTime) + bufferMinutes;
       if (s >= startMins && s <= endMins) {
         busyList.push({ startMins: s, endMins: Math.min(e, endMins), type: "booked" });
       }
@@ -224,10 +240,23 @@ export default function DoctorAvailabilityTab() {
               const endTime = daySched.endTime ? (daySched.endTime.length === 5 ? `${daySched.endTime}:00` : daySched.endTime) : "17:00:00";
 
               const docAppts = Array.isArray(rawAppts)
-                ? rawAppts.filter((a: any) => a.providerId === d.id && (a.date === selectedDate || a.appointmentDate === selectedDate))
+                ? rawAppts.filter((a: any) => {
+                    if (a.providerId !== d.id) return false;
+                    const aDate = a.startTime
+                      ? new Date(a.startTime).toISOString().slice(0, 10)
+                      : a.date || a.appointmentDate;
+                    return aDate === selectedDate;
+                  })
                 : [];
 
-              const { openSlots, segments } = computeSegmentsAndBreak(startTime, endTime, docAppts);
+              const { openSlots, segments } = computeSegmentsAndBreak(
+                startTime,
+                endTime,
+                docAppts,
+                daySched.breakStartTime,
+                daySched.breakEndTime,
+                typeof daySched.bufferTime === "number" ? daySched.bufferTime : 30
+              );
 
               return {
                 id: d.id,

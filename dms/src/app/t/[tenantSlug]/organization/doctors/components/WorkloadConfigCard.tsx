@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { Sliders, Sparkles, AlertTriangle, Flame, Save, Loader2, CheckCircle2, AlertCircle, ChevronDown, X } from "lucide-react";
 
-export default function WorkloadConfigCard({ locationId }: { locationId?: string | null }) {
+export default function WorkloadConfigCard() {
   const [open, setOpen] = useState(false);
   const [healthyMax, setHealthyMax] = useState<number>(15);
   const [busyMax, setBusyMax] = useState<number>(20);
@@ -18,31 +18,6 @@ export default function WorkloadConfigCard({ locationId }: { locationId?: string
     async function loadThresholds() {
       try {
         setLoading(true);
-        let activeLocId = locationId;
-        if (!activeLocId) {
-          try {
-            activeLocId =
-              localStorage.getItem("dms_location_id") ||
-              localStorage.getItem("current_location_id") ||
-              localStorage.getItem("locationId");
-          } catch (e) {}
-        }
-
-        if (activeLocId) {
-          try {
-            const savedLoc = localStorage.getItem(`workload_thresholds_${activeLocId}`);
-            if (savedLoc) {
-              const parsed = JSON.parse(savedLoc);
-              if (parsed?.workloadHealthyMax && parsed?.workloadBusyMax) {
-                setHealthyMax(Number(parsed.workloadHealthyMax));
-                setBusyMax(Number(parsed.workloadBusyMax));
-                setLoading(false);
-                return;
-              }
-            }
-          } catch (e) {}
-        }
-
         const { data } = await axios.get("/api/workload");
         if (data?.success) {
           setHealthyMax(data.data.workloadHealthyMax ?? 15);
@@ -55,7 +30,7 @@ export default function WorkloadConfigCard({ locationId }: { locationId?: string
       }
     }
     loadThresholds();
-  }, [locationId]);
+  }, []);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -79,47 +54,17 @@ export default function WorkloadConfigCard({ locationId }: { locationId?: string
 
     try {
       setSaving(true);
-      let activeLocId = locationId;
-      if (!activeLocId) {
-        try {
-          activeLocId =
-            localStorage.getItem("dms_location_id") ||
-            localStorage.getItem("current_location_id") ||
-            localStorage.getItem("locationId");
-        } catch (e) {}
-      }
+      const { data } = await axios.patch("/api/workload", {
+        workloadHealthyMax: Number(healthyMax),
+        workloadBusyMax: Number(busyMax),
+      });
 
-      if (activeLocId) {
-        try {
-          localStorage.setItem(
-            `workload_thresholds_${activeLocId}`,
-            JSON.stringify({
-              workloadHealthyMax: Number(healthyMax),
-              workloadBusyMax: Number(busyMax),
-            }),
-          );
-          window.dispatchEvent(
-            new CustomEvent("workload_updated", {
-              detail: { locationId: activeLocId },
-            })
-          );
-        } catch (e) {}
-
-        setMsg({ type: "success", text: "Workload thresholds saved for this location!" });
+      if (data?.success) {
+        window.dispatchEvent(new CustomEvent("workload_updated", { detail: {} }));
+        setMsg({ type: "success", text: "Organization workload thresholds updated!" });
         setTimeout(() => setMsg(null), 3000);
       } else {
-        const { data } = await axios.patch("/api/workload", {
-          workloadHealthyMax: Number(healthyMax),
-          workloadBusyMax: Number(busyMax),
-        });
-
-        if (data?.success) {
-          window.dispatchEvent(new CustomEvent("workload_updated", { detail: {} }));
-          setMsg({ type: "success", text: "Organization workload thresholds updated!" });
-          setTimeout(() => setMsg(null), 3000);
-        } else {
-          setMsg({ type: "error", text: data?.error || "Failed to update workload thresholds." });
-        }
+        setMsg({ type: "error", text: data?.error || "Failed to update workload thresholds." });
       }
     } catch (err: any) {
       console.error("Failed to save workload settings:", err);

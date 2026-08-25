@@ -41,7 +41,6 @@ type Organization = {
   name: string;
   slug: string;
   status: OrgStatus;
-  email: string;
   ownerName: string;
   ownerEmail: string;
   phone: string;
@@ -55,7 +54,13 @@ const EMPTY_FORM = {
   name: "",
   slug: "",
   status: "Active" as OrgStatus,
-  email: "",
+  firstOutletName: "",
+  firstOutletAddress: "",
+  firstOutletCity: "",
+  firstOutletPhone: "",
+  firstOutletEmail: "",
+  firstOutletOpeningTime: "",
+  firstOutletClosingTime: "",
   ownerName: "",
   ownerEmail: "",
   ownerPassword: "",
@@ -73,7 +78,13 @@ function orgToForm(o: Organization): FormState {
     name: o.name,
     slug: o.slug,
     status: o.status,
-    email: o.email,
+    firstOutletName: "",
+    firstOutletAddress: "",
+    firstOutletCity: "",
+    firstOutletPhone: "",
+    firstOutletEmail: "",
+    firstOutletOpeningTime: "",
+    firstOutletClosingTime: "",
     ownerName: o.ownerName,
     ownerEmail: o.ownerEmail,
     ownerPassword: "",
@@ -109,16 +120,15 @@ type ApiOrgRow = {
 };
 
 function mapApiOrgToUi(raw: ApiOrgRow, index: number): Organization {
-  const ownerEmail = raw.ownerEmail || raw.email || "";
+  const ownerEmail = raw.ownerEmail || raw.email || "—";
   return {
     id: raw.id,
     orgId: `ORG-${String(raw.id ?? index).slice(-6).toUpperCase()}`,
     name: raw.name ?? "Organization",
     slug: raw.slug ?? "-",
     status: mapApiStatusToUi(raw.status ?? "cancelled"),
-    email: raw.email || ownerEmail || "—",
     ownerName: raw.ownerName || "—",
-    ownerEmail: ownerEmail || "—",
+    ownerEmail: ownerEmail,
     phone: raw.ownerPhone || "—",
     outletCount: typeof raw.outletCount === "number" ? raw.outletCount : 0,
     createdDate: raw.createdAt ?? "",
@@ -306,7 +316,6 @@ export default function OrganizationsPage() {
         const payload = {
           name: form.name.trim() || undefined,
           slug: form.slug.trim() || undefined,
-          email: form.email.trim() || undefined,
           photoKey: form.picture ?? undefined,
           status: mapUiStatusToApi(form.status),
           ownerName: form.ownerName.trim() || undefined,
@@ -336,9 +345,15 @@ export default function OrganizationsPage() {
         const payload = {
           name: form.name.trim(),
           slug: form.slug.trim() || undefined,
-          email: form.email.trim() || undefined,
           photoKey: form.picture ?? undefined,
           status: mapUiStatusToApi(form.status),
+          firstOutletName: form.firstOutletName.trim() || undefined,
+          firstOutletAddress: form.firstOutletAddress.trim() || undefined,
+          firstOutletCity: form.firstOutletCity.trim() || undefined,
+          firstOutletPhone: form.firstOutletPhone.trim() || undefined,
+          firstOutletEmail: form.firstOutletEmail.trim() || undefined,
+          firstOutletOpeningTime: form.firstOutletOpeningTime.trim() || undefined,
+          firstOutletClosingTime: form.firstOutletClosingTime.trim() || undefined,
           ownerName: form.ownerName.trim(),
           ownerEmail: form.ownerEmail.trim(),
           ownerPhone: form.phone.trim() || undefined,
@@ -541,7 +556,7 @@ export default function OrganizationsPage() {
                     <td className="px-5 py-4 text-[0.85rem] text-slate-600">
                       <p className="flex items-center gap-1.5">
                         <Mail className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
-                        {o.email}
+                        {o.ownerEmail}
                       </p>
                     </td>
                     <td className="px-5 py-4 text-[0.85rem] text-slate-600">
@@ -737,7 +752,7 @@ export default function OrganizationsPage() {
                     type="text"
                     value={form.name}
                     onChange={(e) => update("name", e.target.value)}
-                    placeholder="Everest Smile Studio"
+                    placeholder=""
                     className={inputClass}
                   />
                 </label>
@@ -757,25 +772,12 @@ export default function OrganizationsPage() {
                       setSlugTouched(true);
                       update("slug", slugify(e.target.value));
                     }}
-                    placeholder="everest-smile"
+                    placeholder=""
                     className={inputClass}
                   />
                 </label>
 
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <Mail className="h-3.5 w-3.5" strokeWidth={2} />
-                    Organization email
-                  </span>
-                  <input
-                    required
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => update("email", e.target.value)}
-                    placeholder="hello@everestsmile.com"
-                    className={inputClass}
-                  />
-                </label>
+
 
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
@@ -793,6 +795,113 @@ export default function OrganizationsPage() {
                   </select>
                 </label>
 
+                {modalMode === "add" && (
+                  <div className="space-y-4 rounded-2xl border border-slate-200/80 bg-slate-100/50 p-4">
+                    <p className="flex items-center gap-1.5 text-[0.8rem] font-semibold text-slate-700">
+                      <MapPin className="h-3.5 w-3.5 text-slate-500" strokeWidth={2} />
+                      First Outlet Details
+                    </p>
+
+                    <label className="block">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                        Outlet name
+                      </span>
+                      <input
+                        type="text"
+                        value={form.firstOutletName}
+                        onChange={(e) => update("firstOutletName", e.target.value)}
+                        placeholder="Main Branch"
+                        className={inputClass}
+                      />
+                    </label>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className="block">
+                        <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                          <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
+                          Address
+                        </span>
+                        <input
+                          type="text"
+                          value={form.firstOutletAddress}
+                          onChange={(e) => update("firstOutletAddress", e.target.value)}
+                          placeholder=""
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                          <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
+                          City
+                        </span>
+                        <input
+                          type="text"
+                          value={form.firstOutletCity}
+                          onChange={(e) => update("firstOutletCity", e.target.value)}
+                          placeholder=""
+                          className={inputClass}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className="block">
+                        <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                          <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+                          Outlet phone
+                        </span>
+                        <input
+                          type="tel"
+                          value={form.firstOutletPhone}
+                          onChange={(e) => update("firstOutletPhone", e.target.value)}
+                          placeholder=""
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                          <Mail className="h-3.5 w-3.5" strokeWidth={2} />
+                          Outlet email
+                        </span>
+                        <input
+                          type="email"
+                          value={form.firstOutletEmail}
+                          onChange={(e) => update("firstOutletEmail", e.target.value)}
+                          placeholder=""
+                          className={inputClass}
+                        />
+                      </label>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <label className="block">
+                        <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                          <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+                          Opening time
+                        </span>
+                        <input
+                          type="time"
+                          value={form.firstOutletOpeningTime}
+                          onChange={(e) => update("firstOutletOpeningTime", e.target.value)}
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                          <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+                          Closing time
+                        </span>
+                        <input
+                          type="time"
+                          value={form.firstOutletClosingTime}
+                          onChange={(e) => update("firstOutletClosingTime", e.target.value)}
+                          className={inputClass}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                )}
+
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                     <User className="h-3.5 w-3.5" strokeWidth={2} />
@@ -803,7 +912,7 @@ export default function OrganizationsPage() {
                     type="text"
                     value={form.ownerName}
                     onChange={(e) => update("ownerName", e.target.value)}
-                    placeholder="Dr. Sarita Lama"
+                    placeholder=""
                     className={inputClass}
                   />
                 </label>
@@ -819,18 +928,20 @@ export default function OrganizationsPage() {
                       type="email"
                       value={form.ownerEmail}
                       onChange={(e) => update("ownerEmail", e.target.value)}
+                      placeholder=""
                       className={inputClass}
                     />
                   </label>
                   <label className="block">
                     <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                       <Phone className="h-3.5 w-3.5" strokeWidth={2} />
-                      Phone
+                      Owner phone
                     </span>
                     <input
                       type="tel"
                       value={form.phone}
                       onChange={(e) => update("phone", e.target.value)}
+                      placeholder=""
                       className={inputClass}
                     />
                   </label>
@@ -840,7 +951,7 @@ export default function OrganizationsPage() {
                   <label className="block">
                     <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                       <IdCard className="h-3.5 w-3.5" strokeWidth={2} />
-                      Owner temporary password
+                      Outlet Password
                     </span>
                     <input
                       required
@@ -928,7 +1039,7 @@ export default function OrganizationsPage() {
                   <h2 className="text-xl font-semibold text-slate-900">{selectedOrg.name}</h2>
                   <p className="mt-1 flex items-center gap-1 text-[0.82rem] text-slate-500">
                     <Globe className="h-3.5 w-3.5" strokeWidth={2} />
-                    {selectedOrg.email}
+                    /{selectedOrg.slug}
                   </p>
 
                   <div className="mt-2 flex flex-wrap items-center gap-2">

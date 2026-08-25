@@ -49,18 +49,17 @@ function getPgErrorCode(err: unknown): string | undefined {
   );
 }
 
-// Confirms a user is both (a) a real clinical staff member and (b) belongs
+// Confirms a user is both (a) a real staff member/doctor and (b) belongs
 // to the caller's own org - the same two-part check used for Treatments.
 async function findOwnedDoctor(doctorId: string, orgId: string) {
   const rows = await db
     .select({ id: users.id, name: users.name, email: users.email })
     .from(users)
-    .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
     .where(
       and(
         eq(users.id, doctorId),
         eq(users.orgId, orgId),
-        eq(userLocationRoles.role, "clinical"),
+        isNull(users.deletedAt),
       ),
     )
     .limit(1);
@@ -664,6 +663,8 @@ export type GetDoctorResult =
           // Nullable now - a day marked isOnLeave has no real hours stored.
           startTime: string | null;
           endTime: string | null;
+          breakStartTime: string | null;
+          breakEndTime: string | null;
           isOnLeave: boolean;
           locationId: string;
         }[];
@@ -694,13 +695,12 @@ export async function getDoctor(doctorId: string): Promise<GetDoctorResult> {
           address: providerProfiles.address,
         })
         .from(users)
-        .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
+        .leftJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
         .leftJoin(providerProfiles, eq(providerProfiles.userId, users.id))
         .where(
           and(
             eq(users.id, doctorId),
             eq(users.orgId, session.orgId),
-            eq(userLocationRoles.role, "clinical"),
             eq(users.isActive, true),
             isNull(users.deletedAt),
           ),
@@ -711,12 +711,15 @@ export async function getDoctor(doctorId: string): Promise<GetDoctorResult> {
           dayOfWeek: providerSchedules.dayOfWeek,
           startTime: providerSchedules.startTime,
           endTime: providerSchedules.endTime,
+          breakStartTime: providerSchedules.breakStartTime,
+          breakEndTime: providerSchedules.breakEndTime,
           isOnLeave: providerSchedules.isOnLeave,
+          bufferTime: providerSchedules.bufferTime,
           locationId: providerSchedules.locationId,
         })
         .from(providerSchedules)
         .where(eq(providerSchedules.userId, doctorId))
-        .orderBy(providerSchedules.dayOfWeek),
+        .orderBy(providerSchedules.dayOfWeek, desc(providerSchedules.createdAt)),
     ]);
 
     const found = record[0];
@@ -776,6 +779,14 @@ async function replaceSchedule(
           isOnLeave: day.isOnLeave,
           startTime: day.isOnLeave ? null : day.startTime,
           endTime: day.isOnLeave ? null : day.endTime,
+          breakStartTime: day.isOnLeave ? null : (day.breakStartTime || null),
+          breakEndTime: day.isOnLeave ? null : (day.breakEndTime || null),
+          bufferTime:
+            typeof day.bufferTime === "number"
+              ? day.bufferTime
+              : typeof day.bufferMinutes === "number"
+                ? day.bufferMinutes
+                : 30,
         })),
       );
     }
@@ -919,70 +930,103 @@ export type AllDoctorsScheduleResult =
   | { success: false; error: string; code: DoctorErrorCode };
 
 export async function getAllDoctorsScheduleTimeline(
-  locationId: string,
-  date: string,
+  locationId?: string | null,
+  date?: string | null,
 ): Promise<AllDoctorsScheduleResult> {
   try {
     const session = await requireSession();
-    const dayOfWeek = new Date(`${date}T00:00:00`).getDay();
+    const activeDate = date || new Date().toISOString().slice(0, 10);
+    const dayOfWeek = new Date(`${activeDate}T00:00:00`).getDay();
 
-    // Every active clinical doctor at this location - the front desk view
-    // shown regardless of whether they're scheduled today at all.
-    const doctorRows = await db
-      .select({
-        id: users.id,
-        name: users.name,
-        specialization: providerProfiles.specialization,
-        startTime: providerSchedules.startTime,
-        endTime: providerSchedules.endTime,
-        isOnLeave: providerSchedules.isOnLeave,
-      })
-      .from(users)
-      .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
-      .leftJoin(providerProfiles, eq(providerProfiles.userId, users.id))
-      .leftJoin(
-        providerSchedules,
-        and(
-          eq(providerSchedules.userId, users.id),
-          eq(providerSchedules.locationId, locationId),
-          eq(providerSchedules.dayOfWeek, dayOfWeek),
-        ),
-      )
-      .where(
-        and(
+    const whereClause = locationId
+      ? and(
           eq(userLocationRoles.locationId, locationId),
           eq(userLocationRoles.role, "clinical"),
           eq(users.orgId, session.orgId),
           eq(users.isActive, true),
           isNull(users.deletedAt),
-        ),
-      )
+        )
+      : and(
+          eq(userLocationRoles.role, "clinical"),
+          eq(users.orgId, session.orgId),
+          eq(users.isActive, true),
+          isNull(users.deletedAt),
+        );
+
+    // Fetch doctors
+    const doctorsFound = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        specialization: providerProfiles.specialization,
+      })
+      .from(users)
+      .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
+      .leftJoin(providerProfiles, eq(providerProfiles.userId, users.id))
+      .where(whereClause)
       .orderBy(users.name);
 
-    const doctorIds = doctorRows.map((d) => d.id);
+    // Deduplicate doctors
+    const uniqueDoctorsMap = new Map<string, (typeof doctorsFound)[0]>();
+    for (const d of doctorsFound) {
+      if (!uniqueDoctorsMap.has(d.id)) {
+        uniqueDoctorsMap.set(d.id, d);
+      }
+    }
+    const uniqueDoctors = Array.from(uniqueDoctorsMap.values());
+    const doctorIds = uniqueDoctors.map((d) => d.id);
 
-    // ONE query for every doctor's bookings, not one query per doctor -
-    // same "avoid N+1" reasoning as everywhere else in this project.
-    const dayStart = new Date(`${date}T00:00:00`);
-    const dayEnd = new Date(`${date}T23:59:59`);
-    const allBookings = doctorIds.length
-      ? await db
-          .select({
-            providerId: appointments.providerId,
-            startTime: appointments.startTime,
-            endTime: appointments.endTime,
-          })
-          .from(appointments)
-          .where(
-            and(
-              inArray(appointments.providerId, doctorIds),
-              ne(appointments.status, "cancelled"),
-              ne(appointments.status, "requested"),
-              gt(appointments.startTime, dayStart),
-              lt(appointments.startTime, dayEnd),
-            ),
-          )
-      : [];
+    if (doctorIds.length === 0) {
+      return { success: true, doctors: [] };
+    }
+
+    // Fetch schedules for all doctors for today's dayOfWeek
+    const schedules = await db
+      .select({
+        userId: providerSchedules.userId,
+        locationId: providerSchedules.locationId,
+        startTime: providerSchedules.startTime,
+        endTime: providerSchedules.endTime,
+        breakStartTime: providerSchedules.breakStartTime,
+        breakEndTime: providerSchedules.breakEndTime,
+        isOnLeave: providerSchedules.isOnLeave,
+        bufferTime: providerSchedules.bufferTime,
+      })
+      .from(providerSchedules)
+      .where(
+        and(
+          inArray(providerSchedules.userId, doctorIds),
+          eq(providerSchedules.dayOfWeek, dayOfWeek),
+        ),
+      );
+
+    const scheduleByDoc = new Map<string, (typeof schedules)[0]>();
+    for (const s of schedules) {
+      const existing = scheduleByDoc.get(s.userId);
+      // Prioritize matching locationId if available
+      if (!existing || (locationId && s.locationId === locationId)) {
+        scheduleByDoc.set(s.userId, s);
+      }
+    }
+
+    // Fetch bookings
+    const dayStart = new Date(`${activeDate}T00:00:00`);
+    const dayEnd = new Date(`${activeDate}T23:59:59`);
+    const allBookings = await db
+      .select({
+        providerId: appointments.providerId,
+        startTime: appointments.startTime,
+        endTime: appointments.endTime,
+      })
+      .from(appointments)
+      .where(
+        and(
+          inArray(appointments.providerId, doctorIds),
+          ne(appointments.status, "cancelled"),
+          gte(appointments.startTime, dayStart),
+          lte(appointments.startTime, dayEnd),
+        ),
+      );
 
     const bookingsByDoctor = new Map<
       string,
@@ -994,15 +1038,26 @@ export async function getAllDoctorsScheduleTimeline(
       bookingsByDoctor.set(b.providerId, list);
     }
 
-    const doctors = doctorRows.map((doctorRow) => {
-      if (!doctorRow.startTime || !doctorRow.endTime || doctorRow.isOnLeave) {
+    const toMins = (t: string) => {
+      const parts = t.split(":");
+      return (parseInt(parts[0], 10) || 0) * 60 + (parseInt(parts[1], 10) || 0);
+    };
+
+    const toStr = (mins: number) => {
+      const h = Math.floor(mins / 60).toString().padStart(2, "0");
+      const m = (mins % 60).toString().padStart(2, "0");
+      return `${h}:${m}:00`;
+    };
+
+    const doctors = uniqueDoctors.map((doc) => {
+      const sched = scheduleByDoc.get(doc.id);
+
+      if (!sched || !sched.startTime || !sched.endTime || sched.isOnLeave) {
         return {
-          id: doctorRow.id,
-          name: doctorRow.name,
-          specialization: doctorRow.specialization,
-          status: doctorRow.isOnLeave
-            ? ("on_leave" as const)
-            : ("not_scheduled" as const),
+          id: doc.id,
+          name: doc.name,
+          specialization: doc.specialization,
+          status: sched?.isOnLeave ? ("on_leave" as const) : ("not_scheduled" as const),
           shiftStart: null,
           shiftEnd: null,
           openSlots: 0,
@@ -1010,60 +1065,105 @@ export async function getAllDoctorsScheduleTimeline(
         };
       }
 
-      const bookings = bookingsByDoctor.get(doctorRow.id) ?? [];
-      const breakWindow = computeBreakWindow(
-        doctorRow.startTime,
-        doctorRow.endTime,
-      );
+      const sTimeStr = sched.startTime.slice(0, 5);
+      const eTimeStr = sched.endTime.slice(0, 5);
+      const shiftStartMins = toMins(sTimeStr);
+      const shiftEndMins = toMins(eTimeStr);
 
-      type Interval = { start: string; end: string; type: "booked" | "break" };
-      const busy: Interval[] = [
-        ...bookings.map((a) => {
-          const bufferedEnd = new Date(a.endTime.getTime() + 30 * 60_000);
-          return {
-            start: a.startTime.toTimeString().slice(0, 5),
-            end: bufferedEnd.toTimeString().slice(0, 5),
-            type: "booked" as const,
-          };
-        }),
-        { ...breakWindow, type: "break" as const },
-      ].sort((a, b) => a.start.localeCompare(b.start));
+      if (shiftEndMins <= shiftStartMins) {
+        return {
+          id: doc.id,
+          name: doc.name,
+          specialization: doc.specialization,
+          status: "available" as const,
+          shiftStart: `${sTimeStr}:00`,
+          shiftEnd: `${eTimeStr}:00`,
+          openSlots: 0,
+          segments: [],
+        };
+      }
+
+      const docBufferMinutes =
+        typeof sched.bufferTime === "number" ? sched.bufferTime : 30;
+
+      type Interval = { startMins: number; endMins: number; type: "booked" | "break" };
+      const busyList: Interval[] = [];
+
+      // Break window
+      if (sched.breakStartTime && sched.breakEndTime) {
+        const bStart = toMins(sched.breakStartTime.slice(0, 5));
+        const bEnd = toMins(sched.breakEndTime.slice(0, 5));
+        if (bEnd > bStart) {
+          busyList.push({ startMins: bStart, endMins: bEnd, type: "break" });
+        }
+      }
+
+      // Bookings
+      const bookings = bookingsByDoctor.get(doc.id) ?? [];
+      for (const b of bookings) {
+        const bStart = b.startTime.getHours() * 60 + b.startTime.getMinutes();
+        const bEnd =
+          b.endTime.getHours() * 60 +
+          b.endTime.getMinutes() +
+          docBufferMinutes;
+        if (bStart < shiftEndMins && bEnd > shiftStartMins) {
+          busyList.push({
+            startMins: Math.max(shiftStartMins, bStart),
+            endMins: Math.min(shiftEndMins, bEnd),
+            type: "booked",
+          });
+        }
+      }
+
+      busyList.sort((a, b) => a.startMins - b.startMins);
 
       const segments: {
         start: string;
         end: string;
         type: "free" | "booked" | "break";
       }[] = [];
-      let cursor = doctorRow.startTime;
 
-      for (const interval of busy) {
-        if (interval.start > cursor) {
-          segments.push({ start: cursor, end: interval.start, type: "free" });
+      let cursor = shiftStartMins;
+
+      for (const busy of busyList) {
+        if (busy.startMins > cursor) {
+          segments.push({
+            start: toStr(cursor),
+            end: toStr(busy.startMins),
+            type: "free",
+          });
         }
-        segments.push(interval);
-        cursor = interval.end > cursor ? interval.end : cursor;
+        segments.push({
+          start: toStr(busy.startMins),
+          end: toStr(busy.endMins),
+          type: busy.type,
+        });
+        if (busy.endMins > cursor) {
+          cursor = busy.endMins;
+        }
       }
-      if (cursor < doctorRow.endTime) {
-        segments.push({ start: cursor, end: doctorRow.endTime, type: "free" });
+
+      if (cursor < shiftEndMins) {
+        segments.push({
+          start: toStr(cursor),
+          end: toStr(shiftEndMins),
+          type: "free",
+        });
       }
 
       const freeMinutes = segments
         .filter((s) => s.type === "free")
-        .reduce((sum, s) => {
-          const [sh, sm] = s.start.split(":").map(Number);
-          const [eh, em] = s.end.split(":").map(Number);
-          return sum + (eh * 60 + em - (sh * 60 + sm));
-        }, 0);
+        .reduce((sum, s) => sum + (toMins(s.end) - toMins(s.start)), 0);
+
       const openSlots = Math.floor(freeMinutes / 30);
 
       return {
-        id: doctorRow.id,
-        name: doctorRow.name,
-        specialization: doctorRow.specialization,
-        status:
-          openSlots === 0 ? ("on_leave" as const) : ("available" as const),
-        shiftStart: doctorRow.startTime,
-        shiftEnd: doctorRow.endTime,
+        id: doc.id,
+        name: doc.name,
+        specialization: doc.specialization,
+        status: "available" as const,
+        shiftStart: `${sTimeStr}:00`,
+        shiftEnd: `${eTimeStr}:00`,
         openSlots,
         segments,
       };

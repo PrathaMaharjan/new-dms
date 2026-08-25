@@ -48,3 +48,9 @@ body {
 .scrollbar-hide::-webkit-scrollbar {
   display: none;             
 }
+
+/* Hide native browser password reveal and clear icons in Edge / Chromium */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}

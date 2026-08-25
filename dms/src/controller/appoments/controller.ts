@@ -39,6 +39,7 @@ import {
   sendAppointmentConfirmedEmail,
 } from "@/lib/email/sendAppomentStatus";
 import { checkInventoryEnabled } from "../inventory/inventoryItem/controller";
+import { calculateAge } from "../patents/controller";
 // import { bookAppointmentSchema } from "@/lib/validators/appointments";
 
 export type BookAppointmentErrorCode =
@@ -48,8 +49,26 @@ export type BookAppointmentErrorCode =
   | "DOUBLE_BOOKED"
   | "SERVER_ERROR";
 
-const BUFFER_MINUTES = 30;
-const BUFFER_MS = BUFFER_MINUTES * 60_000;
+const DEFAULT_BUFFER_MINUTES = 30;
+
+async function getDoctorBufferMs(
+  providerId: string,
+  locationId: string,
+  dayOfWeek: number
+): Promise<number> {
+  const schedule = await db.query.providerSchedules.findFirst({
+    where: and(
+      eq(providerSchedules.userId, providerId),
+      eq(providerSchedules.locationId, locationId),
+      eq(providerSchedules.dayOfWeek, dayOfWeek)
+    ),
+  });
+  const minutes =
+    schedule && typeof schedule.bufferTime === "number"
+      ? schedule.bufferTime
+      : DEFAULT_BUFFER_MINUTES;
+  return minutes * 60_000;
+}
 
 export type BookAppointmentResult =
   | {
@@ -120,43 +139,72 @@ async function isDoctorScheduledForWindow(params: {
   startTime: Date;
   endTime: Date;
 }) {
-  // Weekly schedule model is day-based, so cross-midnight slots cannot be
-  // validated against a single day record.
   if (params.startTime.getDay() !== params.endTime.getDay()) {
     return false;
   }
 
   const dayOfWeek = params.startTime.getDay();
-  const startTimeOfDay = toTimeOfDay(params.startTime);
-  const endTimeOfDay = toTimeOfDay(params.endTime);
 
-  const scheduled = await db
-    .select({ userId: providerSchedules.userId })
+  const schedules = await db
+    .select({
+      locationId: providerSchedules.locationId,
+      startTime: providerSchedules.startTime,
+      endTime: providerSchedules.endTime,
+      breakStartTime: providerSchedules.breakStartTime,
+      breakEndTime: providerSchedules.breakEndTime,
+      isOnLeave: providerSchedules.isOnLeave,
+    })
     .from(providerSchedules)
-    .innerJoin(
-      userLocationRoles,
-      and(
-        eq(userLocationRoles.userId, providerSchedules.userId),
-        eq(userLocationRoles.locationId, providerSchedules.locationId),
-      ),
-    )
     .innerJoin(users, eq(users.id, providerSchedules.userId))
     .where(
       and(
         eq(providerSchedules.userId, params.providerId),
-        eq(providerSchedules.locationId, params.locationId),
         eq(providerSchedules.dayOfWeek, dayOfWeek),
-        eq(providerSchedules.isOnLeave, false),
-        lte(providerSchedules.startTime, startTimeOfDay),
-        gte(providerSchedules.endTime, endTimeOfDay),
-        eq(userLocationRoles.role, "clinical"),
         eq(users.isActive, true),
         isNull(users.deletedAt),
       ),
-    )
-    .limit(1);
+    );
 
-  return scheduled.length > 0;
+  if (schedules.length === 0) return false;
+
+  const schedule =
+    schedules.find((s) => s.locationId === params.locationId) || schedules[0];
+
+  if (!schedule || schedule.isOnLeave || !schedule.startTime || !schedule.endTime) {
+    return false;
+  }
+
+  const toMins = (timeStr: string) => {
+    const [h, m] = timeStr.slice(0, 5).split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
+
+  const apptStartMins =
+    params.startTime.getHours() * 60 + params.startTime.getMinutes();
+  const apptEndMins =
+    params.endTime.getHours() * 60 + params.endTime.getMinutes();
+
+  const shiftStartMins = toMins(schedule.startTime);
+  const shiftEndMins = toMins(schedule.endTime);
+
+  // Must be within doctor's shift hours
+  if (apptStartMins < shiftStartMins || apptEndMins > shiftEndMins) {
+    return false;
+  }
+
+  // Must not overlap lunch break
+  if (schedule.breakStartTime && schedule.breakEndTime) {
+    const breakStartMins = toMins(schedule.breakStartTime);
+    const breakEndMins = toMins(schedule.breakEndTime);
+
+    if (breakEndMins > breakStartMins) {
+      if (apptStartMins < breakEndMins && apptEndMins > breakStartMins) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 async function findAvailableDoctor(
@@ -169,54 +217,85 @@ async function findAvailableDoctor(
   }
 
   const dayOfWeek = startTime.getDay();
-  const startTimeOfDay = toTimeOfDay(startTime);
-  const endTimeOfDay = toTimeOfDay(endTime);
 
-  // Candidate doctors must be scheduled for the full treatment window.
-  const scheduledDoctors = await db
-    .select({ userId: providerSchedules.userId })
+  const schedules = await db
+    .select({
+      userId: providerSchedules.userId,
+      locationId: providerSchedules.locationId,
+      startTime: providerSchedules.startTime,
+      endTime: providerSchedules.endTime,
+      breakStartTime: providerSchedules.breakStartTime,
+      breakEndTime: providerSchedules.breakEndTime,
+      isOnLeave: providerSchedules.isOnLeave,
+      bufferTime: providerSchedules.bufferTime,
+    })
     .from(providerSchedules)
-    .innerJoin(
-      userLocationRoles,
-      and(
-        eq(userLocationRoles.userId, providerSchedules.userId),
-        eq(userLocationRoles.locationId, providerSchedules.locationId),
-      ),
-    )
     .innerJoin(users, eq(users.id, providerSchedules.userId))
     .where(
       and(
-        eq(providerSchedules.locationId, locationId),
         eq(providerSchedules.dayOfWeek, dayOfWeek),
         eq(providerSchedules.isOnLeave, false),
-        lte(providerSchedules.startTime, startTimeOfDay),
-        gte(providerSchedules.endTime, endTimeOfDay),
-        eq(userLocationRoles.role, "clinical"),
         eq(users.isActive, true),
         isNull(users.deletedAt),
       ),
     );
 
-  if (scheduledDoctors.length === 0) return null;
+  if (schedules.length === 0) return null;
 
-  const candidateIds = scheduledDoctors.map((d) => d.userId);
+  const toMins = (timeStr: string) => {
+    const [h, m] = timeStr.slice(0, 5).split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
 
-  const busyDoctors = await db
-    .select({ providerId: appointments.providerId })
-    .from(appointments)
-    .where(
-      and(
-        inArray(appointments.providerId, candidateIds),
+  const apptStartMins = startTime.getHours() * 60 + startTime.getMinutes();
+  const apptEndMins = endTime.getHours() * 60 + endTime.getMinutes();
+
+  const docSchedules = new Map<string, (typeof schedules)[0]>();
+  for (const s of schedules) {
+    const existing = docSchedules.get(s.userId);
+    if (!existing || s.locationId === locationId) {
+      docSchedules.set(s.userId, s);
+    }
+  }
+
+  for (const [userId, sched] of docSchedules.entries()) {
+    if (!sched.startTime || !sched.endTime || sched.isOnLeave) continue;
+
+    const shiftStartMins = toMins(sched.startTime);
+    const shiftEndMins = toMins(sched.endTime);
+
+    if (apptStartMins < shiftStartMins || apptEndMins > shiftEndMins) continue;
+
+    if (sched.breakStartTime && sched.breakEndTime) {
+      const breakStartMins = toMins(sched.breakStartTime);
+      const breakEndMins = toMins(sched.breakEndTime);
+      if (breakEndMins > breakStartMins) {
+        if (apptStartMins < breakEndMins && apptEndMins > breakStartMins) {
+          continue;
+        }
+      }
+    }
+
+    const docBufferMs =
+      (typeof sched.bufferTime === "number"
+        ? sched.bufferTime
+        : DEFAULT_BUFFER_MINUTES) * 60_000;
+
+    const conflict = await db.query.appointments.findFirst({
+      where: and(
+        eq(appointments.providerId, userId),
         ne(appointments.status, "cancelled"),
-        lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
-        gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
+        lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
+        gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
       ),
-    );
+    });
 
-  const busyIds = new Set(busyDoctors.map((d) => d.providerId));
-  const availableId = candidateIds.find((id) => !busyIds.has(id));
+    if (!conflict) {
+      return userId;
+    }
+  }
 
-  return availableId ?? null;
+  return null;
 }
 export async function bookAppointment(
   input: unknown,
@@ -311,6 +390,7 @@ export async function bookAppointment(
         const [firstName, ...rest] = trimmedName.split(" ");
         const lastName = rest.join(" ") || "-";
 
+        const computedAge = data.dob ? calculateAge(data.dob, null) : null;
         const [newPatient] = await tx
           .insert(patients)
           .values({
@@ -321,18 +401,25 @@ export async function bookAppointment(
             phone: data.phone,
             email: data.email || null,
             dob: data.dob || null,
+            age: computedAge,
           })
           .returning();
         patient = newPatient;
         wasNewPatient = true;
       }
 
+      const docBufferMs = await getDoctorBufferMs(
+        providerId,
+        data.locationId,
+        startTime.getDay(),
+      );
+
       const conflict = await tx.query.appointments.findFirst({
         where: and(
           eq(appointments.providerId, providerId),
           ne(appointments.status, "cancelled"),
-          lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
-          gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
+          lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
+          gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
         ),
       });
 
@@ -861,13 +948,19 @@ export async function reassignAppointmentDoctor(
     // Same double-booking check as bookAppointment, but explicitly
     // excludes THIS appointment - otherwise it would always "conflict"
     // with itself, since it's already booked against the old provider.
+    const docBufferMs = await getDoctorBufferMs(
+      newProviderId,
+      locationId,
+      startTime.getDay(),
+    );
+
     const conflict = await db.query.appointments.findFirst({
       where: and(
         eq(appointments.providerId, newProviderId),
         ne(appointments.id, appointmentId),
         ne(appointments.status, "cancelled"),
-        lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
-        gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
+        lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
+        gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
       ),
     });
 
@@ -1176,12 +1269,18 @@ export async function assignAppointmentToPatient(
       };
     }
 
+    const docBufferMs = await getDoctorBufferMs(
+      providerId,
+      data.locationId,
+      startTime.getDay(),
+    );
+
     const conflict = await db.query.appointments.findFirst({
       where: and(
         eq(appointments.providerId, providerId),
         ne(appointments.status, "cancelled"),
-        lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
-        gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
+        lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
+        gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
       ),
     });
     if (conflict) {
@@ -1350,13 +1449,19 @@ export async function updateAppointment(
 
       // Same double-booking guard as reassignAppointmentDoctor - exclude
       // this appointment, since it's already booked against itself.
+      const docBufferMs = await getDoctorBufferMs(
+        providerId,
+        current.locationId,
+        startTime.getDay(),
+      );
+
       const conflict = await db.query.appointments.findFirst({
         where: and(
           eq(appointments.providerId, providerId),
           ne(appointments.id, appointmentId),
           ne(appointments.status, "cancelled"),
-          lt(appointments.startTime, new Date(endTime.getTime() + BUFFER_MS)),
-          gt(appointments.endTime, new Date(startTime.getTime() - BUFFER_MS)),
+          lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
+          gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
         ),
       });
       if (conflict) {

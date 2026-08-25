@@ -45,22 +45,22 @@ export default function CommissionStatCard() {
   }, []);
 
   return (
-    <div className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm">
+    <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-5 shadow-lg backdrop-blur-sm flex flex-col justify-between">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
           Commission
-        </span>
+        </p>
 
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#7da3b3]/10 text-[#345263]">
-          <Percent className="h-5 w-5" />
-        </div>
+        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+          <Percent className="h-4 w-4" />
+        </span>
       </div>
 
-      <div className="mt-4">
+      <div className="mt-2">
         {loading ? (
           <div className="flex items-center gap-2 py-1 text-xs text-slate-400">
             <Loader2 className="h-4 w-4 animate-spin text-[#7da3b3]" />
-            Loading...
+            <span>Loading...</span>
           </div>
         ) : error ? (
           <div
@@ -71,15 +71,9 @@ export default function CommissionStatCard() {
             <span>Error loading</span>
           </div>
         ) : (
-          <div>
-            <div className="text-2xl font-bold tracking-tight text-slate-900">
-              NPR {formatFullAmount(totalEarned ?? 0)}
-            </div>
-
-            <p className="mt-1 text-[0.75rem] text-slate-500">
-              Total earned commissions
-            </p>
-          </div>
+          <p className="text-2xl font-bold text-slate-900">
+            NPR {formatFullAmount(totalEarned ?? 0)}
+          </p>
         )}
       </div>
     </div>

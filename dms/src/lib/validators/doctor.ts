@@ -8,17 +8,7 @@ export const createDoctorSchema = z.object({
   phone: optionalPhoneSchema,
   password: z.string().min(8, "Password must be at least 8 characters"),
   photoKey: z.string().optional(),
-  specialization: z
-    .enum([
-      "general_dentistry",
-      "orthodontics",
-      "endodontics",
-      "periodontics",
-      "oral_surgery",
-      "pediatric_dentistry",
-      "prosthodontics",
-    ])
-    .optional(),
+  specialization: z.string().optional(),
   qualification: z.string().optional(),
   education: z.string().optional(),
   bio: z.string().optional(),
@@ -39,17 +29,7 @@ export const updateDoctorSchema = z.object({
   email: z.string().email("Please enter a valid email address").optional(),
   phone: optionalPhoneSchema,
   photoKey: z.string().optional(),
-  specialization: z
-    .enum([
-      "general_dentistry",
-      "orthodontics",
-      "endodontics",
-      "periodontics",
-      "oral_surgery",
-      "pediatric_dentistry",
-      "prosthodontics",
-    ])
-    .optional(),
+  specialization: z.string().optional(),
   qualification: z.string().optional(),
   education: z.string().optional(),
   bio: z.string().optional(),
@@ -75,6 +55,10 @@ export const updateScheduleSchema = z.object({
       // need real hours at all.
       startTime: z.string().optional(),
       endTime: z.string().optional(),
+      breakStartTime: z.string().nullable().optional(),
+      breakEndTime: z.string().nullable().optional(),
+      bufferTime: z.number().int().min(0).max(180).optional(),
+      bufferMinutes: z.number().int().min(0).max(180).optional(),
     }).refine(
       (day) => day.isOnLeave || (day.startTime && day.endTime),
       { message: "Start and end time are required for a working day" }

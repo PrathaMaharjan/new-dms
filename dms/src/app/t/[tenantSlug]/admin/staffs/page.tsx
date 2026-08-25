@@ -221,7 +221,7 @@ export default function AdminStaffPage() {
           phone: s.phone,
           shift: s.shift ? s.shift.charAt(0).toUpperCase() + s.shift.slice(1) : "Morning",
           status: s.isActive !== false ? "Active" : "Inactive",
-          joinDate: s.createdAt ? s.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+          joinDate: s.joinDate || (s.createdAt ? String(s.createdAt).slice(0, 10) : ""),
           gender: s.gender || "Female",
           address: s.address || "",
           imageUrl: s.photoUrl || undefined,
@@ -371,6 +371,7 @@ export default function AdminStaffPage() {
           email: form.email,
           phone: form.phone,
           shift: shiftEnumVal,
+          joinDate: form.joinDate || undefined,
           gender: form.gender,
           address: form.address,
         };
@@ -415,6 +416,7 @@ export default function AdminStaffPage() {
             phone: form.phone,
             password: form.password || "Password@123",
             shift: shiftEnumVal,
+            joinDate: form.joinDate || undefined,
             gender: form.gender,
             address: form.address,
             isActive: form.status === "Active",
@@ -648,9 +650,17 @@ export default function AdminStaffPage() {
                     </span>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-1.5 text-[0.8rem] text-slate-500">
-                    <Clock className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
-                    {s.shift} shift
+                  <div className="mt-3 space-y-1.5 text-[0.8rem] text-slate-500">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                      {s.shift} shift
+                    </div>
+                    {s.joinDate && (
+                      <div className="flex items-center gap-1.5">
+                        <CalendarDays className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                        Joined {formatDateLabel(s.joinDate)}
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 border-t border-slate-900/5 pt-4 text-[0.8rem] text-slate-500">

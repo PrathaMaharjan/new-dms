@@ -187,7 +187,7 @@ function Sidebar({ inventoryEnabled = true, logoUrl, tenantName }: SidebarProps)
       }
     }
     setOpenGroups((prev) => ({ ...prev, ...next }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+ 
   }, [pathname]);
 
   function toggleGroup(label: string) {
@@ -229,9 +229,7 @@ function Sidebar({ inventoryEnabled = true, logoUrl, tenantName }: SidebarProps)
         />
       )}
 
-      {/* Sidebar
-          - Mobile: fixed overlay panel that slides in/out, closed by default
-          - Desktop (lg+): sticky column pinned to viewport height, part of normal flex layout */}
+
       <aside
         className={[
           "flex w-70 shrink-0 flex-col bg-[#3f6274] py-6 shadow-2xl lg:shadow-none",

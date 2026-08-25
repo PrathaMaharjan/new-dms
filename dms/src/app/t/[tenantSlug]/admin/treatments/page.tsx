@@ -119,6 +119,40 @@ export default function TreatmentsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Treatment | null>(null);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
+  const [categoriesList, setCategoriesList] = useState<string[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("dms_custom_treatment_categories");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) {
+            return Array.from(new Set([...CATEGORIES, ...parsed]));
+          }
+        }
+      } catch (e) {}
+    }
+    return CATEGORIES;
+  });
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryInput, setNewCategoryInput] = useState("");
+
+  const handleAddCategory = () => {
+    const trimmed = newCategoryInput.trim();
+    if (!trimmed) return;
+    const formatted = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+    if (!categoriesList.includes(formatted)) {
+      const updated = [...categoriesList, formatted];
+      setCategoriesList(updated);
+      try {
+        const customOnly = updated.filter((c) => !CATEGORIES.includes(c));
+        localStorage.setItem("dms_custom_treatment_categories", JSON.stringify(customOnly));
+      } catch (e) {}
+    }
+    update("category", formatted);
+    setIsAddingCategory(false);
+    setNewCategoryInput("");
+  };
+
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
   const [modalOpen, setModalOpen] = useState(false);
@@ -129,34 +163,61 @@ export default function TreatmentsPage() {
   const [profileTab, setProfileTab] = useState<"detail" | "procedure" | "aftercare">(
     "detail"
   );
+  const [todayBookingsCount, setTodayBookingsCount] = useState<number>(0);
 
   async function loadData() {
     try {
       setLoading(true);
       // Fetch locations/services first to get locationId
       const servicesRes = await axios.get("/api/services");
+      let locId: string | null = null;
       if (servicesRes.data?.success && servicesRes.data.data.services?.length > 0) {
-        setLocationId(servicesRes.data.data.services[0].locationId);
+        locId = servicesRes.data.data.services[0].locationId;
+        setLocationId(locId);
       }
 
-      // Fetch treatments
-      const treatmentsRes = await axios.get("/api/treatment");
+      // Fetch treatments and appointments for location
+      const [treatmentsRes, apptsRes] = await Promise.all([
+        axios.get("/api/treatment", { params: locId ? { locationId: locId } : undefined }),
+        axios.get("/api/appoments", { params: locId ? { locationId: locId } : undefined }).catch(() => null),
+      ]);
+
+      if (apptsRes?.data?.success && Array.isArray(apptsRes.data.data?.appointments)) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const count = apptsRes.data.data.appointments.filter((a: any) => {
+          if (a.status === "cancelled") return false;
+          const aDate = a.date || (a.startTime ? new Date(a.startTime).toISOString().slice(0, 10) : "");
+          return aDate === todayStr;
+        }).length;
+        setTodayBookingsCount(count);
+      } else {
+        setTodayBookingsCount(0);
+      }
+
       if (treatmentsRes.data?.success) {
         const dbTreatments = treatmentsRes.data.data.treatments || [];
-        const mapped = dbTreatments.map((t: any, index: number) => ({
-          id: t.id,
-          name: t.name,
-          category: CATEGORIES.find(c => c.toLowerCase() === t.category) || t.category,
-          duration: `${t.durationMinutes} mins`,
-          price: t.priceCents / 100,
-          description: t.description || "",
-          treatmentId: `TRT-${1000 + index + 1}`,
-          sessions: String(t.sessions || 1),
-          recoveryTime: t.recoveryTime || "",
-          anesthesia: t.anesthesia ? (t.anesthesia.charAt(0).toUpperCase() + t.anesthesia.slice(1)) : "None",
-          procedureSteps: t.procedureSteps || [],
-          aftercare: t.aftercareInstructions || [],
-        }));
+        const mapped = dbTreatments.map((t: any, index: number) => {
+          const catName =
+            CATEGORIES.find((c) => c.toLowerCase() === (t.category || "").toLowerCase()) ||
+            (t.category ? t.category.charAt(0).toUpperCase() + t.category.slice(1) : "General");
+          if (catName && !CATEGORIES.includes(catName)) {
+            setCategoriesList((prev) => (prev.includes(catName) ? prev : [...prev, catName]));
+          }
+          return {
+            id: t.id,
+            name: t.name,
+            category: catName,
+            duration: `${t.durationMinutes} mins`,
+            price: t.priceCents / 100,
+            description: t.description || "",
+            treatmentId: `TRT-${1000 + index + 1}`,
+            sessions: String(t.sessions || 1),
+            recoveryTime: t.recoveryTime || "",
+            anesthesia: t.anesthesia ? (t.anesthesia.charAt(0).toUpperCase() + t.anesthesia.slice(1)) : "None",
+            procedureSteps: t.procedureSteps || [],
+            aftercare: t.aftercareInstructions || [],
+          };
+        });
         setTreatments(mapped);
       }
     } catch (err) {
@@ -266,7 +327,7 @@ export default function TreatmentsPage() {
       if (modalMode === "edit" && editingId) {
         const payload = {
           name: form.name,
-          category: form.category.toLowerCase(),
+          category: form.category.trim(),
           durationMinutes: durationVal,
           priceCents: priceVal,
           sessions: sessionsVal,
@@ -280,13 +341,16 @@ export default function TreatmentsPage() {
         const res = await axios.patch(`/api/treatment/${editingId}`, payload);
         if (res.data?.success) {
           const updatedTreatment = res.data.data.treatment;
+          const displayCat =
+            CATEGORIES.find((c) => c.toLowerCase() === (updatedTreatment.category || "").toLowerCase()) ||
+            updatedTreatment.category;
           setTreatments((prev) =>
             prev.map((t) =>
               t.id === editingId
                 ? {
                   ...t,
                   name: updatedTreatment.name,
-                  category: CATEGORIES.find(c => c.toLowerCase() === updatedTreatment.category) || updatedTreatment.category,
+                  category: displayCat,
                   duration: `${updatedTreatment.durationMinutes} mins`,
                   price: updatedTreatment.priceCents / 100,
                   description: updatedTreatment.description || "",
@@ -305,7 +369,7 @@ export default function TreatmentsPage() {
               ? {
                 ...prev,
                 name: updatedTreatment.name,
-                category: CATEGORIES.find(c => c.toLowerCase() === updatedTreatment.category) || updatedTreatment.category,
+                category: displayCat,
                 duration: `${updatedTreatment.durationMinutes} mins`,
                 price: updatedTreatment.priceCents / 100,
                 description: updatedTreatment.description || "",
@@ -327,7 +391,7 @@ export default function TreatmentsPage() {
         const payload = {
           locationId,
           name: form.name,
-          category: form.category.toLowerCase(),
+          category: form.category.trim(),
           durationMinutes: durationVal,
           priceCents: priceVal,
           sessions: sessionsVal,
@@ -336,18 +400,22 @@ export default function TreatmentsPage() {
           description: form.description || null,
           procedureSteps: procedureList,
           aftercareInstructions: aftercareList,
+          hasNoSupplies: true,
         };
 
         const res = await axios.post("/api/treatment", payload);
         if (res.data?.success) {
           const newTreatment = res.data.data.treatment;
+          const displayCat =
+            CATEGORIES.find((c) => c.toLowerCase() === (newTreatment.category || "").toLowerCase()) ||
+            newTreatment.category;
           setTreatments((prev) => [
             {
               id: newTreatment.id,
               treatmentId: `TRT-${1000 + prev.length + 1}`,
               createdDate: new Date(newTreatment.createdAt).toISOString().slice(0, 16).replace("T", " "),
               name: newTreatment.name,
-              category: CATEGORIES.find(c => c.toLowerCase() === newTreatment.category) || newTreatment.category,
+              category: displayCat,
               duration: `${newTreatment.durationMinutes} mins`,
               price: newTreatment.priceCents / 100,
               description: newTreatment.description || "",
@@ -387,8 +455,8 @@ export default function TreatmentsPage() {
     {
       icon: CalendarCheck,
       label: "Bookings Today",
-      value: "22",
-      trend: "Increased by 9%",
+      value: String(todayBookingsCount),
+      trend: "Today's bookings",
       trendUp: true,
     },
     {
@@ -468,7 +536,7 @@ export default function TreatmentsPage() {
                   className="appearance-none rounded-full border border-slate-900/10 bg-white py-2.5 pl-9 pr-8 text-[0.9rem] text-slate-900 outline-none focus:border-[#7da3b3]"
                 >
                   <option value="All">All categories</option>
-                  {CATEGORIES.map((c) => (
+                  {categoriesList.map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
@@ -677,28 +745,84 @@ export default function TreatmentsPage() {
                 </label>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <label className="block">
-                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                      <Layers className="h-3.5 w-3.5" strokeWidth={2} />
-                      Category
-                    </span>
-                    <select
-                      value={form.category}
-                      onChange={(e) => update("category", e.target.value)}
-                      className={inputClass}
-                    >
-                      {CATEGORIES.map((c) => (
-                        <option key={c}>{c}</option>
-                      ))}
-                    </select>
-                  </label>
+                  <div className="block">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                        <Layers className="h-3.5 w-3.5" strokeWidth={2} />
+                        Category
+                      </span>
+                      {!isAddingCategory && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsAddingCategory(true);
+                            setNewCategoryInput("");
+                          }}
+                          className="cursor-pointer text-[0.75rem] font-medium text-[#3f6274] hover:underline"
+                        >
+                          + Add new
+                        </button>
+                      )}
+                    </div>
+                    {isAddingCategory ? (
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="e.g. Whitening"
+                          value={newCategoryInput}
+                          onChange={(e) => setNewCategoryInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddCategory();
+                            }
+                          }}
+                          autoFocus
+                          className={`${inputClass} !py-2 text-xs`}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddCategory}
+                          className="shrink-0 rounded-xl bg-[#7da3b3] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#345263]"
+                        >
+                          Add
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsAddingCategory(false)}
+                          className="shrink-0 rounded-xl border border-slate-200 px-2.5 py-2 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        value={form.category}
+                        onChange={(e) => {
+                          if (e.target.value === "__add_new__") {
+                            setIsAddingCategory(true);
+                            setNewCategoryInput("");
+                          } else {
+                            update("category", e.target.value);
+                          }
+                        }}
+                        className={inputClass}
+                      >
+                        {categoriesList.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                        <option value="__add_new__">+ Add new category...</option>
+                      </select>
+                    )}
+                  </div>
                   <label className="block">
                     <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                       <Timer className="h-3.5 w-3.5" strokeWidth={2} />
                       Duration
                     </span>
                     <input
-                      required
                       type="text"
                       value={form.duration}
                       onChange={(e) => update("duration", e.target.value)}
@@ -715,7 +839,6 @@ export default function TreatmentsPage() {
                       Price (NPR)
                     </span>
                     <input
-                      required
                       type="number"
                       min={0}
                       value={form.price}

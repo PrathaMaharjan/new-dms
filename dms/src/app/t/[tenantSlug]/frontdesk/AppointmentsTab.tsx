@@ -194,6 +194,19 @@ function formatDateTime(isoString: string | Date | null | undefined) {
   };
 }
 
+export function calculateAgeFromDob(dob?: string | null): string {
+  if (!dob) return "";
+  const birthDate = new Date(dob);
+  if (isNaN(birthDate.getTime())) return "";
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age >= 0 ? String(age) : "";
+}
+
 export default function AppointmentsTab() {
   const [locationId, setLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -310,18 +323,26 @@ export default function AppointmentsTab() {
 
       const patientsRes = await axios.get("/api/patent").catch(() => null);
       if (patientsRes?.data?.success && patientsRes.data.data.patients) {
-        const pts: Patient[] = patientsRes.data.data.patients.map((p: any) => ({
-          id: p.id,
-          firstName: p.firstName || "",
-          lastName: p.lastName || "",
-          name: `${p.firstName || ""} ${p.lastName || ""}`.trim() || "Patient",
-          phone: p.phone || "",
-          email: p.email || "",
-          dob: p.dob || "",
-          age: p.age ? String(p.age) : "",
-          gender: p.gender || "",
-          bloodGroup: p.bloodGroup || "",
-        }));
+        const pts: Patient[] = patientsRes.data.data.patients.map((p: any) => {
+          let calculatedAge = "";
+          if (p.age !== null && p.age !== undefined && p.age !== "") {
+            calculatedAge = String(p.age);
+          } else if (p.dob) {
+            calculatedAge = calculateAgeFromDob(p.dob);
+          }
+          return {
+            id: p.id,
+            firstName: p.firstName || "",
+            lastName: p.lastName || "",
+            name: `${p.firstName || ""} ${p.lastName || ""}`.trim() || "Patient",
+            phone: p.phone || "",
+            email: p.email || "",
+            dob: p.dob || "",
+            age: calculatedAge,
+            gender: p.gender || "",
+            bloodGroup: p.bloodGroup || "",
+          };
+        });
         setPatientsList(pts);
       }
 
@@ -1090,7 +1111,7 @@ export default function AppointmentsTab() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex items-center gap-1.5 rounded-xl bg-sky-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-xl bg-[#7da3b3] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#6b92a2] transition-colors disabled:opacity-50"
                   >
                     {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Save Changes
@@ -1243,7 +1264,7 @@ export default function AppointmentsTab() {
                                       {p.name}
                                     </span>
                                     <span className="text-[0.68rem] text-slate-400">
-                                      {p.gender || "Gender N/A"} • {p.age ? `${p.age} yrs` : "Age N/A"}
+                                      {p.gender || "Gender N/A"} • {p.age ? `${p.age} yrs` : (p.dob ? `${calculateAgeFromDob(p.dob)} yrs` : "Age N/A")}
                                     </span>
                                   </div>
                                   <span className="text-slate-400">{p.phone}</span>
@@ -1434,7 +1455,7 @@ export default function AppointmentsTab() {
                           </p>
                           <p className="text-xs text-slate-600 font-medium">
                             {selectedPatient.gender || "Gender N/A"} •{" "}
-                            {selectedPatient.age ? `${selectedPatient.age} yrs` : ""}
+                            {selectedPatient.age ? `${selectedPatient.age} yrs` : (selectedPatient.dob ? `${calculateAgeFromDob(selectedPatient.dob)} yrs` : "")}
                           </p>
                           <p className="text-xs flex items-center gap-1 text-slate-500">
                             <Phone className="h-3 w-3" /> {selectedPatient.phone || "No phone"}
@@ -1682,7 +1703,7 @@ export default function AppointmentsTab() {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="flex items-center gap-1.5 rounded-xl bg-sky-600 px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-50"
+                    className="flex items-center gap-1.5 rounded-xl bg-[#7da3b3] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#6b92a2] transition-colors disabled:opacity-50"
                   >
                     {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Save Changes

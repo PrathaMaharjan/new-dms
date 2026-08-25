@@ -17,7 +17,7 @@ export type CreateOrgWithOwnerResult =
   | {
       success: true;
       organization: { id: string; name: string; slug: string };
-      location: { id: string, name: string }, 
+      location: { id: string; name: string };
       owner: { id: string; email: string };
       emailSent: boolean;
     }
@@ -32,20 +32,116 @@ export async function createOrganizationWithOwner(input: unknown): Promise<Creat
       return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input.", code: "VALIDATION" };
     }
     const data = parsed.data;
-    const tempPassword = data.password;
+    const cleanOwnerEmail = data.ownerEmail.toLowerCase().trim();
 
+    // Check if owner email is already in use in an active or suspended organization
+    const existingUser = await db.query.users.findFirst({
+      where: eq(users.email, cleanOwnerEmail),
+    });
+    if (existingUser) {
+      const userOrg = await db.query.organizations.findFirst({
+        where: eq(organizations.id, existingUser.orgId),
+      });
+      if (userOrg && userOrg.status !== "cancelled") {
+        return {
+          success: false,
+          error: `A user account with email "${data.ownerEmail}" already exists in ${userOrg.name}. Please use a different owner email.`,
+          code: "DUPLICATE",
+        };
+      }
+    }
+
+    // Check if owner phone is already in use in an active or suspended organization
+    if (data.ownerPhone?.trim()) {
+      const cleanPhone = data.ownerPhone.trim();
+      const existingPhone = await db.query.users.findFirst({
+        where: eq(users.phone, cleanPhone),
+      });
+      if (existingPhone) {
+        const phoneOrg = await db.query.organizations.findFirst({
+          where: eq(organizations.id, existingPhone.orgId),
+        });
+        if (phoneOrg && phoneOrg.status !== "cancelled") {
+          return {
+            success: false,
+            error: `A user account with phone "${cleanPhone}" already exists in ${phoneOrg.name}.`,
+            code: "DUPLICATE",
+          };
+        }
+      }
+    }
+
+    // Check if slug is already in use in an active or suspended organization
+    const orgSlug = (data.slug?.trim() || slugify(data.name)).toLowerCase();
+    const existingOrg = await db.query.organizations.findFirst({
+      where: eq(organizations.slug, orgSlug),
+    });
+    if (existingOrg && existingOrg.status !== "cancelled") {
+      return {
+        success: false,
+        error: `An organization with slug "${orgSlug}" already exists. Please choose a different organization name or slug.`,
+        code: "DUPLICATE",
+      };
+    }
+
+    const tempPassword = data.password;
     const passwordHash = await hashPassword(tempPassword);
 
-    // Organization, its first owner, AND its first location - all three
-    // created together, atomically. An org with no location at all
-    // can't actually be used (no appointments, no patients, no staff
-    // assignment possible), so this isn't optional.
+    // Organization, its first owner, and its default location created together atomically.
     const { organization, owner, location } = await db.transaction(async (tx) => {
+      // Free up email/phone on users belonging to cancelled orgs to prevent unique constraint conflicts
+      const cancelledUsersWithEmail = await tx
+        .select({ id: users.id, email: users.email })
+        .from(users)
+        .where(eq(users.email, cleanOwnerEmail));
+
+      for (const u of cancelledUsersWithEmail) {
+        await tx
+          .update(users)
+          .set({
+            email: `${u.email}.cancelled.${u.id}`,
+            deletedAt: new Date(),
+            isActive: false,
+          })
+          .where(eq(users.id, u.id));
+      }
+
+      if (data.ownerPhone?.trim()) {
+        const cleanPhone = data.ownerPhone.trim();
+        const cancelledUsersWithPhone = await tx
+          .select({ id: users.id, phone: users.phone })
+          .from(users)
+          .where(eq(users.phone, cleanPhone));
+
+        for (const u of cancelledUsersWithPhone) {
+          await tx
+            .update(users)
+            .set({
+              phone: `${u.phone}_cancelled_${u.id}`,
+            })
+            .where(eq(users.id, u.id));
+        }
+      }
+
+      const cancelledOrgsWithSlug = await tx
+        .select({ id: organizations.id, slug: organizations.slug })
+        .from(organizations)
+        .where(and(eq(organizations.slug, orgSlug), eq(organizations.status, "cancelled")));
+
+      for (const o of cancelledOrgsWithSlug) {
+        await tx
+          .update(organizations)
+          .set({
+            slug: `${o.slug}-cancelled-${o.id.slice(0, 8)}`,
+          })
+          .where(eq(organizations.id, o.id));
+      }
+
       const [org] = await tx
         .insert(organizations)
         .values({
-          name: data.name,
-          slug: data.slug ?? slugify(data.name),
+          name: data.name.trim(),
+          slug: orgSlug,
           photoUrl: data.photoKey,
           status: data.status ?? "active",
         })
@@ -55,10 +151,10 @@ export async function createOrganizationWithOwner(input: unknown): Promise<Creat
         .insert(users)
         .values({
           orgId: org.id,
-          email: data.ownerEmail,
-          phone: data.ownerPhone,
+          email: cleanOwnerEmail,
+          phone: data.ownerPhone?.trim() || null,
           passwordHash,
-          name: data.ownerName,
+          name: data.ownerName.trim(),
           isOwner: true,
         })
         .returning();
@@ -67,7 +163,13 @@ export async function createOrganizationWithOwner(input: unknown): Promise<Creat
         .insert(locations)
         .values({
           orgId: org.id,
-          name: "Main Branch",
+          name: data.firstOutletName?.trim() || "Main Branch",
+          address: data.firstOutletAddress?.trim() || null,
+          city: data.firstOutletCity?.trim() || null,
+          phone: data.firstOutletPhone?.trim() || null,
+          email: data.firstOutletEmail?.trim() || null,
+          openingTime: data.firstOutletOpeningTime?.trim() || null,
+          closingTime: data.firstOutletClosingTime?.trim() || null,
         })
         .returning();
 
@@ -76,7 +178,7 @@ export async function createOrganizationWithOwner(input: unknown): Promise<Creat
 
     let emailSent = true;
     try {
-      await sendStaffWelcomeEmail(data.ownerEmail, data.ownerName, tempPassword, organization.name, "Owner");
+      await sendStaffWelcomeEmail(cleanOwnerEmail, data.ownerName, tempPassword, organization.name, "Owner");
     } catch (emailErr) {
       console.error("Organization created, but welcome email failed to send:", emailErr);
       emailSent = false;
@@ -85,14 +187,29 @@ export async function createOrganizationWithOwner(input: unknown): Promise<Creat
     return {
       success: true,
       organization: { id: organization.id, name: organization.name, slug: organization.slug },
+      location: { id: location.id, name: location.name },
       owner: { id: owner.id, email: owner.email },
-      location: { id: location.id, name: location.name }, // ADDED
       emailSent,
     };
-  } catch (err) {
-    // RESTORED - the specific error handling that was lost
+  } catch (err: any) {
     if (err instanceof SuperAdminSessionError) {
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
+    }
+
+    const pgError = err?.cause || err;
+    if (pgError?.code === "23505" || pgError?.constraint) {
+      const detail: string = pgError?.detail || "";
+      const constraint: string = pgError?.constraint || "";
+      if (constraint.includes("email") || detail.includes("email")) {
+        return { success: false, error: "A user account with this owner email already exists.", code: "DUPLICATE" };
+      }
+      if (constraint.includes("phone") || detail.includes("phone")) {
+        return { success: false, error: "A user account with this phone number already exists.", code: "DUPLICATE" };
+      }
+      if (constraint.includes("slug") || detail.includes("slug")) {
+        return { success: false, error: "An organization with this slug already exists.", code: "DUPLICATE" };
+      }
+      return { success: false, error: detail || "A record with this information already exists.", code: "DUPLICATE" };
     }
   
     console.error(err);

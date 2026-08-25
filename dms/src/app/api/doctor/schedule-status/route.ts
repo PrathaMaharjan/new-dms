@@ -7,10 +7,6 @@ export async function GET(request: NextRequest) {
   const locationId = sp.get("locationId");
   const date = sp.get("date") ?? new Date().toISOString().slice(0, 10);
 
-  if (!locationId) {
-    return NextResponse.json({ success: false, error: "locationId is required" }, { status: 400 });
-  }
-
   const result = await getAllDoctorsScheduleTimeline(locationId, date);
   if (!result.success) {
     return NextResponse.json({ success: false, error: result.error, code: result.code }, { status: 400 });

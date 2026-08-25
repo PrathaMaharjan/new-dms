@@ -230,10 +230,24 @@ export async function updateTreatment(treatmentId: string, input: unknown): Prom
 
     const { supplies, hasNoSupplies, ...treatmentFields } = data;
 
+    const updateValues: Partial<typeof treatments.$inferInsert> = {
+      updatedAt: new Date(),
+    };
+    if (treatmentFields.name !== undefined) updateValues.name = treatmentFields.name;
+    if (treatmentFields.category !== undefined) updateValues.category = treatmentFields.category;
+    if (treatmentFields.durationMinutes !== undefined) updateValues.durationMinutes = treatmentFields.durationMinutes;
+    if (treatmentFields.priceCents !== undefined) updateValues.priceCents = treatmentFields.priceCents;
+    if (treatmentFields.sessions !== undefined && treatmentFields.sessions !== null) updateValues.sessions = treatmentFields.sessions;
+    if (treatmentFields.anesthesia !== undefined && treatmentFields.anesthesia !== null) updateValues.anesthesia = treatmentFields.anesthesia;
+    if (treatmentFields.recoveryTime !== undefined) updateValues.recoveryTime = treatmentFields.recoveryTime;
+    if (treatmentFields.description !== undefined) updateValues.description = treatmentFields.description;
+    if (treatmentFields.procedureSteps !== undefined) updateValues.procedureSteps = treatmentFields.procedureSteps;
+    if (treatmentFields.aftercareInstructions !== undefined) updateValues.aftercareInstructions = treatmentFields.aftercareInstructions;
+
     const updated = await db.transaction(async (tx) => {
       const [updatedTreatment] = await tx
         .update(treatments)
-        .set({ ...treatmentFields, updatedAt: new Date() })
+        .set(updateValues)
         .where(eq(treatments.id, treatmentId))
         .returning();
 

@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dentro — Modern Dental Care",
+  title: "Clinic POS",
   description:
     "High-quality dental care using modern technology and a patient-first approach.",
 };

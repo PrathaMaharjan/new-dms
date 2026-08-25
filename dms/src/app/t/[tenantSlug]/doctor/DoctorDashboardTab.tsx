@@ -36,6 +36,7 @@ import {
   Wallet,
   Receipt,
   TrendingDown,
+  X,
 } from "lucide-react";
 import { useWorkloadThresholds } from "@/lib/hooks/workload";
 import { getWorkloadStatus, WORKLOAD_DISPLAY, WORKLOAD_ICON } from "@/lib/workload";
@@ -116,7 +117,8 @@ export default function DoctorDashboardTab({
   const [activeLocId, setActiveLocId] = useState<string | null>(null);
   const [dashboardData, setDashboardData] =
     useState<DoctorDashboardData | null>(null);
-  const { thresholds } = useWorkloadThresholds(activeLocId);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const { thresholds } = useWorkloadThresholds();
 
   const loadDoctorProfile = useCallback(async () => {
     try {
@@ -287,40 +289,61 @@ export default function DoctorDashboardTab({
           </div>
         )}
 
-        <div className="flex w-full justify-start">
-          {!loading &&
-            (() => {
-              const status = getWorkloadStatus(
-                stats.appointmentsToday,
-                thresholds,
-              );
-              const display = WORKLOAD_DISPLAY[status];
-              const StatusIcon = WORKLOAD_ICON[status];
-
-              return (
-                <div
-                  className={`flex items-center gap-3 rounded-xl  py-3 pl-4 pr-5 shadow-sm ${display.bgColor}`}
-                >
-                  <span
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/70 ${display.textColor}`}
-                  >
-                    <StatusIcon className="h-4 w-4" strokeWidth={2} />
-                  </span>
-                  <p className="text-sm text-slate-700">
-                    {greeting}
-                    {doctorName ? `, ${doctorName}` : ", Doctor"}
-                    <span className="text-slate-400"> &mdash; </span>
-                    <span className={`font-semibold ${display.textColor}`}>
-                      {display.label}
-                    </span>
-                    <span className="text-slate-500">
-                      , {stats.appointmentsToday} appointments today
-                    </span>
-                  </p>
-                </div>
-              );
-            })()}
+        {/* Clean Greeting Header */}
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
+            {greeting}{doctorName ? `, ${doctorName}` : ", Doctor"}
+          </h1>
         </div>
+
+        {/* Workload Status Banner (Dismissable) */}
+        {!loading && !bannerDismissed && (() => {
+          const status = getWorkloadStatus(
+            stats.appointmentsToday,
+            thresholds,
+          );
+
+          let bgClass = "bg-emerald-50/90 border-emerald-200/90 text-emerald-900";
+          let iconColor = "text-emerald-600 bg-emerald-100/80";
+          let headline = "Balanced pace today!";
+          let message = `Smooth sailing! You have a nice, healthy schedule of ${stats.appointmentsToday} appointment${stats.appointmentsToday === 1 ? "" : "s"} today. Have a fantastic day! `;
+
+          if (status === "heavy") {
+            bgClass = "bg-rose-50/90 border-rose-200/90 text-rose-900";
+            iconColor = "text-rose-600 bg-rose-100/80";
+            headline = "Working hard today!";
+            message = `Whoa! You've got a heavy workload with ${stats.appointmentsToday} appointments on your schedule today. Make sure to stay hydrated, take breaks, and take care of yourself! `;
+          } else if (status === "busy") {
+            bgClass = "bg-amber-50/90 border-amber-200/90 text-amber-900";
+            iconColor = "text-amber-600 bg-amber-100/80";
+            headline = "Busy day ahead!";
+            message = `You're on a roll today! You have ${stats.appointmentsToday} appointments lined up. Keep up the amazing work! `;
+          }
+
+          const StatusIcon = WORKLOAD_ICON[status];
+
+          return (
+            <div className={`flex items-start justify-between gap-4 rounded-2xl border p-4 shadow-sm transition-all animate-in fade-in slide-in-from-top-1 ${bgClass}`}>
+              <div className="flex items-start gap-3.5">
+                <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl shadow-xs ${iconColor}`}>
+                  <StatusIcon className="h-5 w-5" strokeWidth={2} />
+                </span>
+                <div>
+                  <h3 className="text-sm font-bold tracking-tight text-slate-800">{headline}</h3>
+                  <p className="mt-0.5 text-xs text-slate-600 leading-relaxed">{message}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBannerDismissed(true)}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-black/5 hover:text-slate-700 transition-colors"
+                title="Dismiss banner"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          );
+        })()}
 
         {loading ? (
           <div className="rounded-2xl border border-slate-900/5 bg-white/90 p-12 text-center text-xs text-slate-400 flex flex-col items-center justify-center gap-2 shadow-lg backdrop-blur-sm">
@@ -521,7 +544,7 @@ export default function DoctorDashboardTab({
               {/* Up Next */}
               <div className="rounded-2xl border border-[#7da3b3]/20 bg-gradient-to-br from-[#7da3b3]/10 via-white to-white p-6 shadow-lg backdrop-blur-sm">
                 <div className="flex items-center gap-2 mb-4">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7da3b3] text-white">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#7da3b3]/10 text-[#7da3b3]">
                     <UserRoundCheck className="h-4 w-4" />
                   </span>
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -609,14 +632,14 @@ export default function DoctorDashboardTab({
                             </p>
                             <span
                               className={`inline-block mt-0.5 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wider ${a.status === "completed"
-                                  ? "bg-slate-100 text-slate-600"
-                                  : a.status === "checked_in"
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : a.status === "no_show"
-                                      ? "bg-rose-50 text-rose-600"
-                                      : a.status === "cancelled"
-                                        ? "bg-slate-100 text-slate-400"
-                                        : "bg-[#7da3b3]/10 text-[#3f6274]"
+                                ? "bg-slate-100 text-slate-600"
+                                : a.status === "checked_in"
+                                  ? "bg-emerald-50 text-emerald-700"
+                                  : a.status === "no_show"
+                                    ? "bg-rose-50 text-rose-600"
+                                    : a.status === "cancelled"
+                                      ? "bg-slate-100 text-slate-400"
+                                      : "bg-[#7da3b3]/10 text-[#3f6274]"
                                 }`}
                             >
                               {statusLabel}

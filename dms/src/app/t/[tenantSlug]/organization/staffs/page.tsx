@@ -181,7 +181,7 @@ export default function StaffPage() {
             phone: s.phone || "",
             shift: s.shift ? s.shift.charAt(0).toUpperCase() + s.shift.slice(1) : "Morning",
             status: s.isActive !== false ? "Active" : "Inactive",
-            joinDate: s.joinDate || "",
+            joinDate: s.joinDate || (s.createdAt ? String(s.createdAt).slice(0, 10) : ""),
             gender: s.gender || "Female",
             address: s.address || "",
             imageUrl: s.photoUrl || undefined,
@@ -344,8 +344,8 @@ export default function StaffPage() {
     const shiftEnumVal = form.shift.toLowerCase() === "evening" || form.shift.toLowerCase() === "night"
       ? "night"
       : form.shift.toLowerCase() === "afternoon"
-      ? "afternoon"
-      : "morning";
+        ? "afternoon"
+        : "morning";
 
     if (modalMode === "edit" && editingId) {
       try {
@@ -358,6 +358,7 @@ export default function StaffPage() {
           email: form.email,
           phone: form.phone,
           shift: shiftEnumVal,
+          joinDate: form.joinDate || undefined,
           gender: form.gender,
           address: form.address,
           isActive: form.status === "Active",
@@ -399,6 +400,7 @@ export default function StaffPage() {
             phone: form.phone,
             password: form.password || "Password@123",
             shift: shiftEnumVal,
+            joinDate: form.joinDate || undefined,
             gender: form.gender,
             address: form.address,
             isActive: form.status === "Active",
@@ -631,9 +633,17 @@ export default function StaffPage() {
                     </span>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-1.5 text-[0.8rem] text-slate-500">
-                    <Clock className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
-                    {s.shift} shift
+                  <div className="mt-3 space-y-1.5 text-[0.8rem] text-slate-500">
+                    <div className="flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                      {s.shift} shift
+                    </div>
+                    {s.joinDate && (
+                      <div className="flex items-center gap-1.5">
+                        <CalendarDays className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                        Joined {formatDateLabel(s.joinDate)}
+                      </div>
+                    )}
                   </div>
 
                   <div className="mt-4 border-t border-slate-900/5 pt-4 text-[0.8rem] text-slate-500">
@@ -766,7 +776,7 @@ export default function StaffPage() {
                     type="text"
                     value={form.name}
                     onChange={(e) => update("name", e.target.value)}
-                    placeholder="Dr. Anish Shrestha"
+                    placeholder=""
                     className={inputClass}
                   />
                 </label>
@@ -827,63 +837,14 @@ export default function StaffPage() {
                       type="tel"
                       value={form.phone}
                       onChange={(e) => update("phone", e.target.value)}
-                      placeholder="98XXXXXXXX"
+                      placeholder=""
                       maxLength={10}
                       className={inputClass}
                     />
                   </label>
                 </div>
 
-                {modalMode === "add" && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <label className="block">
-                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
-                        Password
-                      </span>
-                      <div className="relative">
-                        <input
-                          required
-                          type={showPassword ? "text" : "password"}
-                          placeholder="At least 8 characters"
-                          value={form.password}
-                          onChange={(e) => update("password", e.target.value)}
-                          className={`${inputClass} pr-10`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </label>
-                    <label className="block">
-                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
-                        Confirm password
-                      </span>
-                      <div className="relative">
-                        <input
-                          required
-                          type={showConfirmPassword ? "text" : "password"}
-                          placeholder="Re-enter password"
-                          value={form.confirmPassword}
-                          onChange={(e) => update("confirmPassword", e.target.value)}
-                          className={`${inputClass} pr-10`}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowConfirmPassword((v) => !v)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-                        >
-                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                    </label>
-                  </div>
-                )}
+
 
                 <div className="grid grid-cols-2 gap-4">
                   <label className="block">
@@ -944,6 +905,56 @@ export default function StaffPage() {
                     className={inputClass}
                   />
                 </label>
+                {modalMode === "add" && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <label className="block">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+                        Password
+                      </span>
+                      <div className="relative">
+                        <input
+                          required
+                          type={showPassword ? "text" : "password"}
+                          placeholder="At least 8 characters"
+                          value={form.password}
+                          onChange={(e) => update("password", e.target.value)}
+                          className={`${inputClass} pr-10`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </label>
+                    <label className="block">
+                      <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                        <Lock className="h-3.5 w-3.5" strokeWidth={2} />
+                        Confirm password
+                      </span>
+                      <div className="relative">
+                        <input
+                          required
+                          type={showConfirmPassword ? "text" : "password"}
+                          placeholder="Re-enter password"
+                          value={form.confirmPassword}
+                          onChange={(e) => update("confirmPassword", e.target.value)}
+                          className={`${inputClass} pr-10`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword((v) => !v)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        >
+                          {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </label>
+                  </div>
+                )}
 
                 <div className="flex items-center gap-3 pt-2">
                   <button

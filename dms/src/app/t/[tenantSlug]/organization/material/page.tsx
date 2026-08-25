@@ -70,20 +70,20 @@ function getSoftDeletedInventoryIds(): Set<string> {
     }
 }
 
-function getStoredRecipes(): Record<string, Recipe | null> {
-    if (typeof window === "undefined") return {};
+function getStoredRecipes(locId?: string): Record<string, Recipe | null> {
+    if (typeof window === "undefined" || !locId) return {};
     try {
-        const item = localStorage.getItem(RECIPES_STORAGE_KEY);
+        const item = localStorage.getItem(`${RECIPES_STORAGE_KEY}_${locId}`);
         return item ? JSON.parse(item) : {};
     } catch {
         return {};
     }
 }
 
-function setStoredRecipes(recipes: Record<string, Recipe | null>) {
-    if (typeof window === "undefined") return;
+function setStoredRecipes(locId: string | undefined, recipes: Record<string, Recipe | null>) {
+    if (typeof window === "undefined" || !locId) return;
     try {
-        localStorage.setItem(RECIPES_STORAGE_KEY, JSON.stringify(recipes));
+        localStorage.setItem(`${RECIPES_STORAGE_KEY}_${locId}`, JSON.stringify(recipes));
     } catch { }
 }
 
@@ -125,14 +125,14 @@ export default function ServiceRecipePage() {
 
     useEffect(() => {
         async function fetchRecipesData() {
+            if (!activeLocationId) return;
             try {
-                const locParam = activeLocationId ? `?locationId=${activeLocationId}` : "";
                 const [treatRes, itemRes] = await Promise.all([
-                    axios.get(`/api/treatment${locParam}`).catch(() => null),
-                    activeLocationId ? axios.get(`/api/inventory/item?locationId=${activeLocationId}`).catch(() => null) : null,
+                    axios.get(`/api/treatment?locationId=${activeLocationId}`).catch(() => null),
+                    axios.get(`/api/inventory/item?locationId=${activeLocationId}`).catch(() => null),
                 ]);
 
-                const localSaved = getStoredRecipes();
+                const localSaved = getStoredRecipes(activeLocationId);
                 const mergedRecipes: Record<string, Recipe | null> = { ...localSaved };
 
                 if (treatRes?.data?.success && Array.isArray(treatRes.data.data?.treatments)) {
@@ -145,18 +145,16 @@ export default function ServiceRecipePage() {
                     setServices(fetchedServices);
 
                     treatRes.data.data.treatments.forEach((t: any) => {
-                        if (!(t.id in localSaved)) {
-                            if (t.supplies && Array.isArray(t.supplies) && t.supplies.length > 0) {
-                                mergedRecipes[t.id] = {
-                                    serviceId: t.id,
-                                    items: t.supplies.map((s: any) => ({
-                                        materialId: s.itemId,
-                                        quantity: s.quantityRequired,
-                                    })),
-                                };
-                            } else {
-                                mergedRecipes[t.id] = null;
-                            }
+                        if (t.supplies && Array.isArray(t.supplies) && t.supplies.length > 0) {
+                            mergedRecipes[t.id] = {
+                                serviceId: t.id,
+                                items: t.supplies.map((s: any) => ({
+                                    materialId: s.itemId,
+                                    quantity: s.quantityRequired,
+                                })),
+                            };
+                        } else if (!(t.id in localSaved)) {
+                            mergedRecipes[t.id] = null;
                         }
                     });
                 }
@@ -271,7 +269,7 @@ export default function ServiceRecipePage() {
 
         setRecipesMap((prev) => {
             const updated = { ...prev, [selectedServiceId]: recipe };
-            setStoredRecipes(updated);
+            setStoredRecipes(activeLocationId, updated);
             return updated;
         });
 
@@ -304,7 +302,7 @@ export default function ServiceRecipePage() {
         setRecipesMap((prev) => {
             const copy = { ...prev };
             copy[deleteTarget.id] = null;
-            setStoredRecipes(copy);
+            setStoredRecipes(activeLocationId, copy);
             return copy;
         });
 

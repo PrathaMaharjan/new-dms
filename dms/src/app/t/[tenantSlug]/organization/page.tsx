@@ -323,20 +323,6 @@ export default function OrganizationDashboardPage() {
               });
             }
 
-            if (isLocActive && treatmentMap.size === 0) {
-              try {
-                const trtListRes = await axios.get(`/api/treatment?locationId=${loc.id}`).catch(() => null);
-                if (trtListRes?.data?.success && Array.isArray(trtListRes.data.data.treatments)) {
-                  trtListRes.data.data.treatments.forEach((t: any) => {
-                    const name = t.name || t.treatmentName;
-                    if (name) {
-                      treatmentMap.set(name, (treatmentMap.get(name) || 0) + 1);
-                    }
-                  });
-                }
-              } catch (e) { }
-            }
-
             if (isLocActive && apptsRes?.data?.success && Array.isArray(apptsRes.data.data.appointments)) {
               apptsRes.data.data.appointments.forEach((a: any) => {
                 combinedAppts.push({
@@ -379,16 +365,6 @@ export default function OrganizationDashboardPage() {
           count: trendMap.get(lbl) || 0,
         }))
       );
-
-      if (treatmentMap.size === 0) {
-        [
-          { name: "Cleaning", value: 45 },
-          { name: "Root Canal", value: 20 },
-          { name: "Whitening", value: 25 },
-          { name: "Orthodontics", value: 15 },
-          { name: "Extraction", value: 10 },
-        ].forEach((item) => treatmentMap.set(item.name, item.value));
-      }
 
       const treatArray = Array.from(treatmentMap.entries()).map(([name, value], idx) => ({
         name,

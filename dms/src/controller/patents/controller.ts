@@ -38,6 +38,20 @@ export type PatientListResult =
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
 
+export function calculateAge(dob: string | null | undefined, existingAge?: number | null): number | null {
+  if (typeof existingAge === "number" && existingAge > 0) return existingAge;
+  if (!dob) return null;
+  const birthDate = new Date(dob);
+  if (isNaN(birthDate.getTime())) return null;
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const m = today.getMonth() - birthDate.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  return age >= 0 ? age : null;
+}
+
 export async function getPatients(options?: {
   limit?: number;
   offset?: number;
@@ -99,9 +113,14 @@ export async function getPatients(options?: {
 
     const total = countResult[0]?.count ?? 0;
 
+    const mappedPatients = results.map((p) => ({
+      ...p,
+      age: calculateAge(p.dob, p.age),
+    }));
+
     return {
       success: true,
-      patients: results,
+      patients: mappedPatients,
       pagination: { total, limit, offset },
     };
   } catch (err) {
@@ -149,6 +168,8 @@ export async function createPatient(input: unknown): Promise<CreatePatientResult
       }
     }
 
+    const calculatedAge = data.age ?? calculateAge(data.dob, null);
+
     const [patient] = await db
       .insert(patients)
       .values({
@@ -157,6 +178,7 @@ export async function createPatient(input: unknown): Promise<CreatePatientResult
         firstName: data.firstName,
         lastName: data.lastName,
         dob: data.dob || null,
+        age: calculatedAge ?? null,
         phone: data.phone || null,
         email: data.email || null,
         gender: data.gender || null,
@@ -250,6 +272,7 @@ export async function getPatient(patientId: string): Promise<GetPatientResult> {
       success: true,
       patient: {
         ...result.patient,
+        age: calculateAge(result.patient.dob, result.patient.age),
         assignedDoctorName: result.assignedDoctorName,
       },
     };

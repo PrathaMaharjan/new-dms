@@ -135,6 +135,10 @@ export type GetStaffListResult =
         locationId: string;
         photoUrl: string | null;
         shift: string | null;
+        joinDate: string | null;
+        gender: string | null;
+        address: string | null;
+        createdAt: Date;
         isActive: boolean;
       }[];
       pagination: { total: number; limit: number; offset: number };
@@ -170,8 +174,10 @@ export type GetStaffListResult =
           role: userLocationRoles.role,
           locationId: userLocationRoles.locationId,
           photoUrl: users.photoUrl,
-          address : users.address,
-          createdAt : users.createdAt,
+          address: users.address,
+          joinDate: users.joinDate,
+          gender: users.gender,
+          createdAt: users.createdAt,
           shift: users.shift,
           isActive: users.isActive,
         })
