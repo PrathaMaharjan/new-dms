@@ -1,7 +1,13 @@
 import { db } from "@/db";
-import { passwordResetOtps, passwordResetTokens, refreshTokens, users } from "@/db/schema";
+import {
+  passwordResetOtps,
+  passwordResetTokens,
+  refreshTokens,
+  users,
+} from "@/db/schema";
 import { hashPassword } from "@/lib/auth/hash";
 import { sendPasswordResetOtpEmail } from "@/lib/email/reset-password";
+import { checkRateLimit } from "@/lib/rate-limit";
 import {
   requestOtpSchema,
   resetPasswordSchema,
@@ -23,6 +29,7 @@ export type RequestOtpResult =
   | { success: false; error: string };
 export async function requestPasswordResetOtp(
   input: unknown,
+  ip:string
 ): Promise<RequestOtpResult> {
   const parsed = requestOtpSchema.safeParse(input);
   if (!parsed.success) {
@@ -33,6 +40,14 @@ export async function requestPasswordResetOtp(
   }
 
   try {
+    const rateLimitKey = `ratelimit:changePassword:${ip}`;
+    const rateLimit = await checkRateLimit(rateLimitKey, 5, 900);
+    if (!rateLimit.allowed) {
+      return {
+        success: false,
+        error: `Too many attempts. Try again in ${Math.ceil(rateLimit.retryAfterSeconds / 60)} minutes.`,
+      };
+    }
     const user = await db.query.users.findFirst({
       where: and(eq(users.email, parsed.data.email), isNull(users.deletedAt)),
     });
@@ -60,12 +75,19 @@ export async function requestPasswordResetOtp(
   }
 }
 
-export type ResetPasswordResult = { success: true } | { success: false; error: string };
+export type ResetPasswordResult =
+  | { success: true }
+  | { success: false; error: string };
 
-export async function resetPassword(input: unknown): Promise<ResetPasswordResult> {
+export async function resetPassword(
+  input: unknown,
+): Promise<ResetPasswordResult> {
   const parsed = resetPasswordSchema.safeParse(input);
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
   }
 
   try {
@@ -74,42 +96,63 @@ export async function resetPassword(input: unknown): Promise<ResetPasswordResult
       where: and(
         eq(passwordResetTokens.tokenHash, tokenHash),
         isNull(passwordResetTokens.usedAt),
-        gt(passwordResetTokens.expiresAt, new Date())
+        gt(passwordResetTokens.expiresAt, new Date()),
       ),
     });
     if (!validToken) {
-      return { success: false, error: "Invalid or expired reset session. Please start over." };
+      return {
+        success: false,
+        error: "Invalid or expired reset session. Please start over.",
+      };
     }
 
     const passwordHash = await hashPassword(parsed.data.newPassword);
 
     await db.transaction(async (tx) => {
-      await tx.update(users).set({ passwordHash }).where(eq(users.id, validToken.userId));
+      await tx
+        .update(users)
+        .set({ passwordHash })
+        .where(eq(users.id, validToken.userId));
       await tx
         .update(passwordResetTokens)
         .set({ usedAt: new Date() })
         .where(eq(passwordResetTokens.id, validToken.id));
       // Kill every existing session - protects against a compromised
       // account keeping an already-active session alive after reset.
-      await tx.update(refreshTokens).set({ revokedAt: new Date() }).where(eq(refreshTokens.userId, validToken.userId));
+      await tx
+        .update(refreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(refreshTokens.userId, validToken.userId));
     });
 
     return { success: true };
   } catch (err) {
     console.error(err);
-    return { success: false, error: "Something went wrong resetting your password." };
+    return {
+      success: false,
+      error: "Something went wrong resetting your password.",
+    };
   }
 }
 
-// verify password 
-export type VerifyOtpResult = { success: true; resetToken: string } | { success: false; error: string };
+// verify password
+export type VerifyOtpResult =
+  | { success: true; resetToken: string }
+  | { success: false; error: string };
 
-export async function verifyPasswordResetOtp(input: unknown): Promise<VerifyOtpResult> {
-  const parsed = requestOtpSchema.extend({ otp: z.string().length(6) }).safeParse(input);
+export async function verifyPasswordResetOtp(
+  input: unknown,
+): Promise<VerifyOtpResult> {
+  const parsed = requestOtpSchema
+    .extend({ otp: z.string().length(6) })
+    .safeParse(input);
   if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input." };
+    return {
+      success: false,
+      error: parsed.error.issues[0]?.message ?? "Invalid input.",
+    };
   }
-    try {
+  try {
     const user = await db.query.users.findFirst({
       where: and(eq(users.email, parsed.data.email), isNull(users.deletedAt)),
     });
@@ -123,19 +166,24 @@ export async function verifyPasswordResetOtp(input: unknown): Promise<VerifyOtpR
         eq(passwordResetOtps.userId, user.id),
         eq(passwordResetOtps.otpHash, otpHash),
         isNull(passwordResetOtps.usedAt),
-        gt(passwordResetOtps.expiresAt, new Date())
+        gt(passwordResetOtps.expiresAt, new Date()),
       ),
     });
     if (!validOtp) {
       return { success: false, error: "Invalid or expired code." };
     }
-        // OTP is consumed here, immediately - it can never be checked again,
+    // OTP is consumed here, immediately - it can never be checked again,
     // even if this exact request somehow ran twice.
     const resetToken = randomBytes(32).toString("hex");
-    const resetTokenHash = createHash("sha256").update(resetToken).digest("hex");
+    const resetTokenHash = createHash("sha256")
+      .update(resetToken)
+      .digest("hex");
 
     await db.transaction(async (tx) => {
-      await tx.update(passwordResetOtps).set({ usedAt: new Date() }).where(eq(passwordResetOtps.id, validOtp.id));
+      await tx
+        .update(passwordResetOtps)
+        .set({ usedAt: new Date() })
+        .where(eq(passwordResetOtps.id, validOtp.id));
       await tx.insert(passwordResetTokens).values({
         userId: user.id,
         tokenHash: resetTokenHash,
@@ -146,6 +194,9 @@ export async function verifyPasswordResetOtp(input: unknown): Promise<VerifyOtpR
     return { success: true, resetToken };
   } catch (err) {
     console.error(err);
-    return { success: false, error: "Something went wrong verifying the code." };
+    return {
+      success: false,
+      error: "Something went wrong verifying the code.",
+    };
   }
 }

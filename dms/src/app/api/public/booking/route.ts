@@ -11,6 +11,7 @@ import {
 import { and, eq, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { sendBookingRequestReceived } from "@/lib/email/sendBookingRequestReceived";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -51,6 +52,18 @@ export async function POST(request: NextRequest) {
     }
 
     const data = parsed.data;
+    // const ip =
+    //   request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    //   "unknown";
+    // const rateLimitKey = `ratelimit:login:${ip}:${data.email}`;
+    // const rateLimit = await checkRateLimit(rateLimitKey, 5, 900);
+    // if (!rateLimit.allowed) {
+    //   return {
+    //     success: false,
+    //     error: `Too many attempts. Try again in ${Math.ceil(rateLimit.retryAfterSeconds / 60)} minutes.`,
+    //     code: "RATE_LIMITED",
+    //   };
+    // }
 
     // 1. Resolve Location & Organization
     let location = null;
