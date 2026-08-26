@@ -18,6 +18,7 @@ export type PatientListResult =
     success: true;
     patients: {
       id: string;
+      locationId: string;
       firstName: string;
       lastName: string;
       age: number | null;
@@ -52,10 +53,13 @@ export function calculateAge(dob: string | null | undefined, existingAge?: numbe
   return age >= 0 ? age : null;
 }
 
-export async function getPatients(options?: {
-  limit?: number;
-  offset?: number;
-}): Promise<PatientListResult> {
+export async function getPatients(
+  locationId?: string,
+  options?: {
+    limit?: number;
+    offset?: number;
+  }
+): Promise<PatientListResult> {
   try {
     const session = await requireSession();
 
@@ -65,10 +69,16 @@ export async function getPatients(options?: {
     );
     const offset = Math.max(options?.offset ?? 0, 0);
 
-    const whereClause = and(
-      eq(patients.orgId, session.orgId),
-      isNull(patients.deletedAt),
-    );
+    const whereClause = locationId
+      ? and(
+          eq(patients.orgId, session.orgId),
+          eq(patients.locationId, locationId),
+          isNull(patients.deletedAt),
+        )
+      : and(
+          eq(patients.orgId, session.orgId),
+          isNull(patients.deletedAt),
+        );
 
     const latestAppt = db
       .selectDistinctOn([appointments.patientId], {
@@ -84,6 +94,7 @@ export async function getPatients(options?: {
       db
         .select({
           id: patients.id,
+          locationId: patients.locationId,
           firstName: patients.firstName,
           lastName: patients.lastName,
           age: patients.age,

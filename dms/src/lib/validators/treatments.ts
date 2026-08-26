@@ -13,6 +13,8 @@ export const createTreatmentSchema = z
     description: z.string().optional().nullable(),
     procedureSteps: z.array(z.string()).optional().nullable(),
     aftercareInstructions: z.array(z.string()).optional().nullable(),
+    photoKey: z.string().optional().nullable(),
+    imageUrl: z.string().optional().nullable(),
     hasNoSupplies: z.boolean().optional().default(true),
     supplies: z
       .array(
@@ -43,6 +45,8 @@ export const updateTreatmentSchema = z.object({
   description: z.string().optional().nullable(),
   procedureSteps: z.array(z.string()).optional().nullable(),
   aftercareInstructions: z.array(z.string()).optional().nullable(),
+  photoKey: z.string().optional().nullable(),
+  imageUrl: z.string().optional().nullable(),
 
   hasNoSupplies: z.boolean().optional().default(true),
   supplies: z

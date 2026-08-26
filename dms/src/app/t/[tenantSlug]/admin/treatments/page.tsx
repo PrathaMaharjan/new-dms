@@ -1,5 +1,6 @@
 "use client";
 
+import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import axios from "axios";
 import {
@@ -30,16 +31,14 @@ import {
   ListChecks,
   Tag,
   Trash2,
+  ImagePlus,
+  X,
+  UploadCloud,
+  ImageIcon,
 } from "lucide-react";
+import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
 
-const CATEGORIES = [
-  "Preventive",
-  "Restorative",
-  "Cosmetic",
-  "Orthodontic",
-  "Surgical",
-  "Pediatric",
-];
+const CATEGORIES: string[] = [];
 
 const ANESTHESIA_OPTIONS = ["None", "Local", "Sedation", "General"];
 
@@ -66,11 +65,12 @@ type Treatment = {
   createdDate?: string;
   procedureSteps?: string[];
   aftercare?: string[];
+  imageUrl?: string;
 };
 
 const EMPTY_FORM = {
   name: "",
-  category: CATEGORIES[0],
+  category: "",
   duration: "",
   price: "",
   description: "",
@@ -79,7 +79,9 @@ const EMPTY_FORM = {
   anesthesia: ANESTHESIA_OPTIONS[0],
   procedureSteps: "",
   aftercare: "",
+  imageUrl: "",
 };
+
 
 type FormState = typeof EMPTY_FORM;
 
@@ -101,6 +103,7 @@ function treatmentToForm(t: Treatment): FormState {
     anesthesia: t.anesthesia ?? ANESTHESIA_OPTIONS[0],
     procedureSteps: (t.procedureSteps ?? []).join("\n"),
     aftercare: (t.aftercare ?? []).join("\n"),
+    imageUrl: t.imageUrl ?? "",
   };
 }
 
@@ -112,6 +115,10 @@ function linesToArray(value: string): string[] {
 }
 
 export default function TreatmentsPage() {
+  const params = useParams();
+  const tenantSlug = typeof params?.tenantSlug === "string" ? params.tenantSlug : "";
+  const storageKey = tenantSlug ? `dms_${tenantSlug}_custom_treatment_categories` : "dms_custom_treatment_categories";
+
   const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [locationId, setLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,20 +126,24 @@ export default function TreatmentsPage() {
   const [deleteTarget, setDeleteTarget] = useState<Treatment | null>(null);
   const [query, setQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
-  const [categoriesList, setCategoriesList] = useState<string[]>(() => {
-    if (typeof window !== "undefined") {
+  const [categoriesList, setCategoriesList] = useState<string[]>(CATEGORIES);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && storageKey) {
       try {
-        const saved = localStorage.getItem("dms_custom_treatment_categories");
+        const saved = localStorage.getItem(storageKey);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
-            return Array.from(new Set([...CATEGORIES, ...parsed]));
+            setCategoriesList(Array.from(new Set([...CATEGORIES, ...parsed])));
           }
         }
       } catch (e) {}
     }
-    return CATEGORIES;
-  });
+  }, [storageKey]);
+
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryInput, setNewCategoryInput] = useState("");
 
@@ -145,13 +156,14 @@ export default function TreatmentsPage() {
       setCategoriesList(updated);
       try {
         const customOnly = updated.filter((c) => !CATEGORIES.includes(c));
-        localStorage.setItem("dms_custom_treatment_categories", JSON.stringify(customOnly));
+        localStorage.setItem(storageKey, JSON.stringify(customOnly));
       } catch (e) {}
     }
     update("category", formatted);
     setIsAddingCategory(false);
     setNewCategoryInput("");
   };
+
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
@@ -214,6 +226,7 @@ export default function TreatmentsPage() {
             sessions: String(t.sessions || 1),
             recoveryTime: t.recoveryTime || "",
             anesthesia: t.anesthesia ? (t.anesthesia.charAt(0).toUpperCase() + t.anesthesia.slice(1)) : "None",
+            imageUrl: t.imageUrl || undefined,
             procedureSteps: t.procedureSteps || [],
             aftercare: t.aftercareInstructions || [],
           };
@@ -240,6 +253,7 @@ export default function TreatmentsPage() {
     setModalMode("add");
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setImageFile(null);
     setModalOpen(true);
   }
 
@@ -247,6 +261,7 @@ export default function TreatmentsPage() {
     setModalMode("edit");
     setEditingId(t.id);
     setForm(treatmentToForm(t));
+    setImageFile(null);
     setModalOpen(true);
   }
 
@@ -313,7 +328,30 @@ export default function TreatmentsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    const { procedureSteps, aftercare, price, ...rest } = form;
+    let uploadedPhotoKey: string | undefined = undefined;
+    if (imageFile) {
+      setUploadingImage(true);
+      try {
+        if (uploadConfig.cloudinary.cloudName && uploadConfig.cloudinary.uploadPreset) {
+          const formData = new FormData();
+          formData.append("file", imageFile);
+          formData.append("upload_preset", uploadConfig.cloudinary.uploadPreset);
+          formData.append("folder", "dental/treatments");
+
+          const cloudinaryRes = await axios.post(
+            `https://api.cloudinary.com/v1_1/${uploadConfig.cloudinary.cloudName}/image/upload`,
+            formData
+          );
+          uploadedPhotoKey = cloudinaryRes.data.public_id;
+        }
+      } catch (uploadErr) {
+        console.error("Cloudinary upload failed:", uploadErr);
+      } finally {
+        setUploadingImage(false);
+      }
+    }
+
+    const { procedureSteps, aftercare, price, imageUrl, ...rest } = form;
     const procedureList = linesToArray(procedureSteps);
     const aftercareList = linesToArray(aftercare);
     const priceNumber = Number(price) || 0;
@@ -325,7 +363,7 @@ export default function TreatmentsPage() {
 
     try {
       if (modalMode === "edit" && editingId) {
-        const payload = {
+        const payload: Record<string, unknown> = {
           name: form.name,
           category: form.category.trim(),
           durationMinutes: durationVal,
@@ -338,12 +376,20 @@ export default function TreatmentsPage() {
           aftercareInstructions: aftercareList,
         };
 
+        if (uploadedPhotoKey) {
+          payload.photoKey = uploadedPhotoKey;
+        } else if (imageUrl !== undefined) {
+          payload.imageUrl = imageUrl || null;
+        }
+
         const res = await axios.patch(`/api/treatment/${editingId}`, payload);
         if (res.data?.success) {
           const updatedTreatment = res.data.data.treatment;
           const displayCat =
             CATEGORIES.find((c) => c.toLowerCase() === (updatedTreatment.category || "").toLowerCase()) ||
             updatedTreatment.category;
+          const newImgUrl = updatedTreatment.imageUrl || (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : form.imageUrl);
+
           setTreatments((prev) =>
             prev.map((t) =>
               t.id === editingId
@@ -357,6 +403,7 @@ export default function TreatmentsPage() {
                   sessions: String(updatedTreatment.sessions || 1),
                   recoveryTime: updatedTreatment.recoveryTime || "",
                   anesthesia: updatedTreatment.anesthesia ? (updatedTreatment.anesthesia.charAt(0).toUpperCase() + updatedTreatment.anesthesia.slice(1)) : "None",
+                  imageUrl: newImgUrl || undefined,
                   procedureSteps: updatedTreatment.procedureSteps || [],
                   aftercare: updatedTreatment.aftercareInstructions || [],
                 }
@@ -376,6 +423,7 @@ export default function TreatmentsPage() {
                 sessions: String(updatedTreatment.sessions || 1),
                 recoveryTime: updatedTreatment.recoveryTime || "",
                 anesthesia: updatedTreatment.anesthesia ? (updatedTreatment.anesthesia.charAt(0).toUpperCase() + updatedTreatment.anesthesia.slice(1)) : "None",
+                imageUrl: newImgUrl || undefined,
                 procedureSteps: updatedTreatment.procedureSteps || [],
                 aftercare: updatedTreatment.aftercareInstructions || [],
               }
@@ -388,7 +436,7 @@ export default function TreatmentsPage() {
           return;
         }
 
-        const payload = {
+        const payload: Record<string, unknown> = {
           locationId,
           name: form.name,
           category: form.category.trim(),
@@ -403,12 +451,20 @@ export default function TreatmentsPage() {
           hasNoSupplies: true,
         };
 
+        if (uploadedPhotoKey) {
+          payload.photoKey = uploadedPhotoKey;
+        } else if (imageUrl) {
+          payload.imageUrl = imageUrl;
+        }
+
         const res = await axios.post("/api/treatment", payload);
         if (res.data?.success) {
           const newTreatment = res.data.data.treatment;
           const displayCat =
             CATEGORIES.find((c) => c.toLowerCase() === (newTreatment.category || "").toLowerCase()) ||
             newTreatment.category;
+          const newImgUrl = newTreatment.imageUrl || (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : undefined);
+
           setTreatments((prev) => [
             {
               id: newTreatment.id,
@@ -422,6 +478,7 @@ export default function TreatmentsPage() {
               sessions: String(newTreatment.sessions || 1),
               recoveryTime: newTreatment.recoveryTime || "",
               anesthesia: newTreatment.anesthesia ? (newTreatment.anesthesia.charAt(0).toUpperCase() + newTreatment.anesthesia.slice(1)) : "None",
+              imageUrl: newImgUrl || undefined,
               procedureSteps: newTreatment.procedureSteps || [],
               aftercare: newTreatment.aftercareInstructions || [],
             },
@@ -432,6 +489,7 @@ export default function TreatmentsPage() {
       }
 
       setForm(EMPTY_FORM);
+      setImageFile(null);
       setEditingId(null);
       setModalOpen(false);
     } catch (err) {
@@ -589,7 +647,20 @@ export default function TreatmentsPage() {
                           className="cursor-pointer transition-colors hover:bg-[#7da3b3]/[0.06]"
                         >
                           <td className="px-5 py-4 text-[0.9rem] font-semibold text-slate-900">
-                            {t.name}
+                            <div className="flex items-center gap-3">
+                              {t.imageUrl ? (
+                                <img
+                                  src={t.imageUrl}
+                                  alt={t.name}
+                                  className="h-10 w-10 shrink-0 rounded-xl object-cover border border-slate-200"
+                                />
+                              ) : (
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7da3b3]/10 text-[#3f6274]">
+                                  <Stethoscope className="h-5 w-5" strokeWidth={1.75} />
+                                </div>
+                              )}
+                              <span>{t.name}</span>
+                            </div>
                           </td>
                           <td className="px-5 py-4">
                             <span
@@ -729,6 +800,69 @@ export default function TreatmentsPage() {
             <div className="px-6 py-6">
               <form onSubmit={handleSubmit} className="space-y-4">
 
+                {/* Treatment Picture Upload */}
+                <div>
+                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                    <ImageIcon className="h-3.5 w-3.5" strokeWidth={2} />
+                    Treatment Picture
+                  </span>
+                  <div className="flex items-center gap-4 rounded-2xl border border-slate-900/10 bg-white p-3.5">
+                    <div className="relative flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                      {imageFile ? (
+                        <img
+                          src={URL.createObjectURL(imageFile)}
+                          alt="Preview"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : form.imageUrl ? (
+                        <img
+                          src={form.imageUrl}
+                          alt="Treatment"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <Stethoscope className="h-7 w-7 text-slate-400" strokeWidth={1.5} />
+                      )}
+                    </div>
+
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100">
+                          <UploadCloud className="h-3.5 w-3.5" />
+                          <span>{imageFile || form.imageUrl ? "Change photo" : "Upload photo"}</span>
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                setImageFile(file);
+                              }
+                            }}
+                          />
+                        </label>
+                        {(imageFile || form.imageUrl) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setImageFile(null);
+                              update("imageUrl", "");
+                            }}
+                            className="inline-flex items-center gap-1 rounded-xl px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <p className="mt-1 text-[0.75rem] text-slate-400">
+                        Recommended: PNG, JPG, or WEBP up to 5MB
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
                     <Tag className="h-3.5 w-3.5" strokeWidth={2} />
@@ -808,6 +942,7 @@ export default function TreatmentsPage() {
                         }}
                         className={inputClass}
                       >
+                        <option value="">Select category...</option>
                         {categoriesList.map((c) => (
                           <option key={c} value={c}>
                             {c}
@@ -989,6 +1124,15 @@ export default function TreatmentsPage() {
             <div className="px-6 py-6">
               {/* Identity */}
               <div>
+                {selectedTreatment.imageUrl && (
+                  <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm max-h-56">
+                    <img
+                      src={selectedTreatment.imageUrl}
+                      alt={selectedTreatment.name}
+                      className="h-full w-full object-cover"
+                    />
+                  </div>
+                )}
                 <h2 className="text-xl font-semibold text-slate-900">
                   {selectedTreatment.name}
                 </h2>

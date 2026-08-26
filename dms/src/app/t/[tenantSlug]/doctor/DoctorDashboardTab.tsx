@@ -156,14 +156,20 @@ const [appointmentTimeframe, setAppointmentTimeframe] = useState<
 
       let locationId: string | null = null;
 
-      try {
-        const savedLoc =
-          localStorage.getItem("dms_location_id") ||
-          localStorage.getItem("current_location_id") ||
-          localStorage.getItem("locationId");
-        if (savedLoc) locationId = savedLoc;
-      } catch (e) { }
+      const userRes = await axios.get("/api/user-details").catch(() => null);
+      if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
+        locationId = userRes.data.data.user.locationId;
+      }
 
+      if (!locationId) {
+        try {
+          const savedLoc =
+            localStorage.getItem("dms_location_id") ||
+            localStorage.getItem("current_location_id") ||
+            localStorage.getItem("locationId");
+          if (savedLoc) locationId = savedLoc;
+        } catch (e) { }
+      }
 
       if (!locationId) {
         const [outletsRes, doctorRes, servicesRes, treatmentsRes, patientsRes, apptsRes] =

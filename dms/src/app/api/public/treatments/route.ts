@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { appointmentTypes, locations, organizations, treatments } from "@/db/schema";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { getImageUrl } from "@/lib/cloudinary/storage";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,10 +16,17 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
-    const locationId = request.nextUrl.searchParams.get("locationId") ?? undefined;
+    const locationId = request.nextUrl.searchParams.get("locationId")?.trim() || undefined;
     const tenantSlug = request.nextUrl.searchParams.get("tenantSlug")?.trim() || undefined;
 
-    let orgLocationIds: string[] | null = null;
+    if (!tenantSlug && !locationId) {
+      return NextResponse.json(
+        { success: false, error: "tenantSlug or locationId is required" },
+        { status: 400, headers: corsHeaders }
+      );
+    }
+
+    let orgLocationIds: string[] = [];
     if (tenantSlug) {
       const org = await db.query.organizations.findFirst({
         where: eq(organizations.slug, tenantSlug),
@@ -37,36 +45,71 @@ export async function GET(request: NextRequest) {
         .where(eq(locations.orgId, org.id));
 
       orgLocationIds = orgLocations.map((l) => l.id);
+
+      if (orgLocationIds.length === 0) {
+        return NextResponse.json(
+          { success: true, statusCode: 200, data: { treatments: [] } },
+          { headers: corsHeaders }
+        );
+      }
     }
 
-    const appointmentTypesWhere = locationId
-      ? orgLocationIds
-        ? and(eq(appointmentTypes.locationId, locationId), inArray(appointmentTypes.locationId, orgLocationIds))
-        : eq(appointmentTypes.locationId, locationId)
-      : orgLocationIds
-        ? inArray(appointmentTypes.locationId, orgLocationIds)
-        : undefined;
+    const filterLocationIds = locationId
+      ? orgLocationIds.length > 0
+        ? orgLocationIds.filter((id) => id === locationId)
+        : [locationId]
+      : orgLocationIds;
 
-    const treatmentsWhere = locationId
-      ? orgLocationIds
-        ? and(eq(treatments.locationId, locationId), inArray(treatments.locationId, orgLocationIds))
-        : eq(treatments.locationId, locationId)
-      : orgLocationIds
-        ? inArray(treatments.locationId, orgLocationIds)
-        : undefined;
+    if (filterLocationIds.length === 0) {
+      return NextResponse.json(
+        { success: true, statusCode: 200, data: { treatments: [] } },
+        { headers: corsHeaders }
+      );
+    }
 
     const [typesList, treatmentsList] = await Promise.all([
-      appointmentTypesWhere
-        ? db.select({ id: appointmentTypes.id, name: appointmentTypes.name }).from(appointmentTypes).where(appointmentTypesWhere)
-        : db.select({ id: appointmentTypes.id, name: appointmentTypes.name }).from(appointmentTypes),
-      treatmentsWhere
-        ? db.select({ id: treatments.id, name: treatments.name }).from(treatments).where(treatmentsWhere)
-        : db.select({ id: treatments.id, name: treatments.name }).from(treatments),
+      db
+        .select({
+          id: appointmentTypes.id,
+          name: appointmentTypes.name,
+          category: sql<string>`'General'`,
+          description: sql<string | null>`NULL`,
+          priceCents: sql<number | null>`NULL`,
+          durationMinutes: appointmentTypes.durationMinutes,
+          imageUrl: sql<string | null>`NULL`,
+        })
+        .from(appointmentTypes)
+        .where(inArray(appointmentTypes.locationId, filterLocationIds)),
+      db
+        .select({
+          id: treatments.id,
+          name: treatments.name,
+          category: treatments.category,
+          description: treatments.description,
+          priceCents: treatments.priceCents,
+          durationMinutes: treatments.durationMinutes,
+          imageUrl: treatments.imageUrl,
+        })
+        .from(treatments)
+        .where(inArray(treatments.locationId, filterLocationIds)),
     ]);
 
     const combined = [...typesList, ...treatmentsList];
     const uniqueServices = Array.from(
-      new Map(combined.filter((s) => Boolean(s.name)).map((s) => [s.name.trim(), s])).values()
+      new Map(
+        combined
+          .filter((s) => Boolean(s.name))
+          .map((s) => {
+            const resolvedImg = s.imageUrl ? getImageUrl(s.imageUrl, { width: 600, height: 450 }) : null;
+            return [
+              s.name.trim(),
+              {
+                ...s,
+                imageUrl: resolvedImg,
+              },
+            ];
+          })
+      ).values()
     );
 
     return NextResponse.json(
@@ -84,3 +127,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

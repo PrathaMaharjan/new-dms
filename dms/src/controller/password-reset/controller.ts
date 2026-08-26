@@ -7,7 +7,7 @@ import {
 } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/hash";
 import { sendPasswordResetOtpEmail } from "@/lib/email/reset-password";
-import { checkRateLimit } from "@/lib/rate-limit";
+// import { checkRateLimit } from "@/lib/rate-limit";
 import {
   requestOtpSchema,
   resetPasswordSchema,
@@ -29,7 +29,7 @@ export type RequestOtpResult =
   | { success: false; error: string };
 export async function requestPasswordResetOtp(
   input: unknown,
-  ip:string
+  ip: string
 ): Promise<RequestOtpResult> {
   const parsed = requestOtpSchema.safeParse(input);
   if (!parsed.success) {
@@ -40,14 +40,14 @@ export async function requestPasswordResetOtp(
   }
 
   try {
-    const rateLimitKey = `ratelimit:changePassword:${ip}`;
-    const rateLimit = await checkRateLimit(rateLimitKey, 5, 900);
-    if (!rateLimit.allowed) {
-      return {
-        success: false,
-        error: `Too many attempts. Try again in ${Math.ceil(rateLimit.retryAfterSeconds / 60)} minutes.`,
-      };
-    }
+    // const rateLimitKey = `ratelimit:changePassword:${ip}`;
+    // const rateLimit = await checkRateLimit(rateLimitKey, 5, 900);
+    // if (!rateLimit.allowed) {
+    //   return {
+    //     success: false,
+    //     error: `Too many attempts. Try again in ${Math.ceil(rateLimit.retryAfterSeconds / 60)} minutes.`,
+    //   };
+    // }
     const user = await db.query.users.findFirst({
       where: and(eq(users.email, parsed.data.email), isNull(users.deletedAt)),
     });

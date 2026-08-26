@@ -7,7 +7,7 @@ import { platformAdminLoginSchema } from "@/lib/validators/superadmin";
 
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { checkRateLimit } from "@/lib/rate-limit";
+// import { checkRateLimit } from "@/lib/rate-limit";
 
 const getAccessTokenSecret = () =>
   process.env.SUPERADMIN_ACCESS_TOKEN_SECRET ||
@@ -64,12 +64,12 @@ export function hashSuperAdminRefreshToken(token: string): string {
 
 export type PlatformAdminLoginResult =
   | {
-      success: true;
-      accessToken: string;
-      refreshToken: string;
-      refreshTokenExpiresAt: Date;
-      admin: { id: string; name: string; email: string };
-    }
+    success: true;
+    accessToken: string;
+    refreshToken: string;
+    refreshTokenExpiresAt: Date;
+    admin: { id: string; name: string; email: string };
+  }
   | { success: false; error: string };
 
 export async function platformAdminLoginController(
@@ -86,7 +86,7 @@ export async function platformAdminLoginController(
   const { email, password } = parsed.data;
 
   const rateLimitKey = `ratelimit:superadmin-login:${ip}`;
-  const rateLimit = await checkRateLimit(rateLimitKey, 3, 1800);
+  // const rateLimit = await checkRateLimit(rateLimitKey, 3, 1800);
 
   const admin = await db.query.platformAdmins.findFirst({
     where: eq(platformAdmins.email, email),

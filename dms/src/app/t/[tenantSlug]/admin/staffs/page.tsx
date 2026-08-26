@@ -180,6 +180,14 @@ export default function AdminStaffPage() {
 
       let locId = locationId;
       if (!locId) {
+        const userRes = await axios.get("/api/user-details").catch(() => null);
+        if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
+          locId = userRes.data.data.user.locationId;
+          setLocationId(locId);
+        }
+      }
+
+      if (!locId) {
         const outletsRes = await axios.get("/api/outlets").catch(() => null);
         if (outletsRes?.data?.success && outletsRes.data.data?.locations?.length > 0) {
           locId = outletsRes.data.data.locations[0].id;

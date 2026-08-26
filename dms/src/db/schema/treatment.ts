@@ -48,6 +48,7 @@ export const treatments = pgTable(
     description: text("description"),
     procedureSteps: text("procedure_steps").array(),
     aftercareInstructions: text("aftercare_instructions").array(),
+    imageUrl: text("image_url"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

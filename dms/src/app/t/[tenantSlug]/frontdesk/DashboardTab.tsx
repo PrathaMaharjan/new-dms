@@ -95,6 +95,28 @@ export default function DashboardTab({
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [dashboardData, setDashboardData] = useState<FrontDeskDashboardData | null>(null);
     const [billingStats, setBillingStats] = useState<BillingSnapshot | null>(null);
+    const [activeLocationId, setActiveLocationId] = useState<string | null>(null);
+    const [appointmentTimeframe, setAppointmentTimeframe] = useState<"7days" | "30days" | "1year">("7days");
+    const [trendData, setTrendData] = useState<{ label: string; count: number }[]>([]);
+    const [loadingTrend, setLoadingTrend] = useState(false);
+
+    const loadTrend = useCallback(async (timeframe: "7days" | "30days" | "1year", locId?: string | null) => {
+        const targetLocId = locId || activeLocationId;
+        if (!targetLocId) return;
+        try {
+            setLoadingTrend(true);
+            const res = await axios.get("/api/frontDesk/dashboard/get7dayStats", {
+                params: { locationId: targetLocId, range: timeframe },
+            });
+            if (res.data?.success && res.data.data?.trend) {
+                setTrendData(res.data.data.trend);
+            }
+        } catch (err) {
+            console.error("Failed to load appointment trend:", err);
+        } finally {
+            setLoadingTrend(false);
+        }
+    }, [activeLocationId]);
 
     const loadData = useCallback(async () => {
         try {
@@ -102,18 +124,25 @@ export default function DashboardTab({
             setErrorMsg(null);
 
             let locationId: string | null = null;
-            const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
-                axios.get("/api/services").catch(() => null),
-                axios.get("/api/treatment").catch(() => null),
-                axios.get("/api/patent").catch(() => null),
-            ]);
+            const userRes = await axios.get("/api/user-details").catch(() => null);
+            if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
+                locationId = userRes.data.data.user.locationId;
+            }
 
-            if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
-                locationId = servicesRes.data.data.services[0].locationId;
-            } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
-                locationId = treatmentsRes.data.data.treatments[0].locationId;
-            } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
-                locationId = patientsRes.data.data.patients[0].locationId;
+            if (!locationId) {
+                const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
+                    axios.get("/api/services").catch(() => null),
+                    axios.get("/api/treatment").catch(() => null),
+                    axios.get("/api/patent").catch(() => null),
+                ]);
+
+                if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
+                    locationId = servicesRes.data.data.services[0].locationId;
+                } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
+                    locationId = treatmentsRes.data.data.treatments[0].locationId;
+                } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
+                    locationId = patientsRes.data.data.patients[0].locationId;
+                }
             }
 
             if (!locationId) {
@@ -122,14 +151,17 @@ export default function DashboardTab({
                 return;
             }
 
+            setActiveLocationId(locationId);
 
             const [res, billingRes] = await Promise.all([
-                axios.get("/api/frontDesk/dashboard/getAll", { params: { locationId } }),
+                axios.get("/api/frontDesk/dashboard/getAll", { params: { locationId, range: appointmentTimeframe } }),
                 axios.get("/api/billing/stats", { params: { locationId } }).catch(() => null),
             ]);
 
             if (res?.data?.success && res.data.data) {
                 setDashboardData(res.data.data);
+                const initialTrend = res.data.data.trend || res.data.data.last7Days || [];
+                setTrendData(initialTrend);
             } else {
                 setErrorMsg(res?.data?.error || "Failed to load dashboard data.");
             }
@@ -143,7 +175,7 @@ export default function DashboardTab({
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [appointmentTimeframe]);
 
     useEffect(() => {
         loadData();
@@ -159,32 +191,9 @@ export default function DashboardTab({
             .filter((item) => item.value > 0);
     }, [dashboardData]);
 
-    const [appointmentTimeframe, setAppointmentTimeframe] = useState<"7days" | "30days" | "1year">("7days");
-
     const weeklyTrend = useMemo(() => {
-        if (appointmentTimeframe === "30days") {
-            return [
-                { label: "Week 1", count: 32 },
-                { label: "Week 2", count: 45 },
-                { label: "Week 3", count: 38 },
-                { label: "Week 4", count: 52 },
-            ];
-        }
-        if (appointmentTimeframe === "1year") {
-            return [
-                { label: "Jan", count: 85 },
-                { label: "Feb", count: 92 },
-                { label: "Mar", count: 110 },
-                { label: "Apr", count: 105 },
-                { label: "May", count: 125 },
-                { label: "Jun", count: 118 },
-                { label: "Jul", count: 140 },
-                { label: "Aug", count: 132 },
-                { label: "Sep", count: 120 },
-                { label: "Oct", count: 128 },
-                { label: "Nov", count: 115 },
-                { label: "Dec", count: 145 },
-            ];
+        if (trendData.length > 0) {
+            return trendData;
         }
         if (!dashboardData?.last7Days) return [];
         return dashboardData.last7Days.map((d) => ({
@@ -192,7 +201,7 @@ export default function DashboardTab({
             date: d.date,
             count: d.count,
         }));
-    }, [dashboardData, appointmentTimeframe]);
+    }, [trendData, dashboardData]);
 
     const doctorLoad = useMemo(() => {
         if (!dashboardData?.doctorLoad) return [];
@@ -307,8 +316,12 @@ export default function DashboardTab({
                                     </div>
                                     <select
                                         value={appointmentTimeframe}
-                                        onChange={(e) => setAppointmentTimeframe(e.target.value as any)}
-                                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-colors focus:border-[#7da3b3]"
+                                        onChange={(e) => {
+                                            const newTimeframe = e.target.value as "7days" | "30days" | "1year";
+                                            setAppointmentTimeframe(newTimeframe);
+                                            loadTrend(newTimeframe);
+                                        }}
+                                        className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 outline-none transition-colors focus:border-[#7da3b3] cursor-pointer"
                                     >
                                         <option value="7days">7 Days</option>
                                         <option value="30days">30 Days</option>

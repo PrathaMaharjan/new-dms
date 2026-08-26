@@ -1,5 +1,6 @@
 "use client";
 
+import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import axios from "axios";
@@ -45,15 +46,7 @@ import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
 import WorkloadConfigCard from "./components/WorkloadConfigCard";
 import DoctorScheduleEditor from "../../doctor/DoctorScheduleEditor";
 
-const SPECIALIZATIONS = [
-  "General Dentistry",
-  "Orthodontics",
-  "Endodontics",
-  "Periodontics",
-  "Oral Surgery",
-  "Pediatric Dentistry",
-  "Prosthodontics",
-];
+const SPECIALIZATIONS: string[] = [];
 
 const SPECIALIZATION_MAP_BACKEND: Record<string, string> = {
   "General Dentistry": "general_dentistry",
@@ -129,7 +122,7 @@ const EMPTY_FORM = {
   name: "",
   email: "",
   phone: "",
-  specialization: SPECIALIZATIONS[0],
+  specialization: "",
   experience: "",
   qualification: "",
   imageUrl: "",
@@ -143,6 +136,7 @@ const EMPTY_FORM = {
   password: "",
   confirmPassword: "",
 };
+
 
 type FormState = typeof EMPTY_FORM;
 
@@ -200,6 +194,10 @@ function pickField(raw: any, ...keys: string[]): string {
 }
 
 export default function DoctorsPage() {
+  const params = useParams();
+  const tenantSlug = typeof params?.tenantSlug === "string" ? params.tenantSlug : "";
+  const storageKey = tenantSlug ? `dms_${tenantSlug}_custom_specializations` : "dms_custom_specializations";
+
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [locationId, setLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -209,21 +207,22 @@ export default function DoctorsPage() {
   const [doctorToDelete, setDoctorToDelete] = useState<Doctor | null>(null);
   const [query, setQuery] = useState("");
   const [specializationFilter, setSpecializationFilter] = useState("All");
-  const [specializationsList, setSpecializationsList] = useState<string[]>(() => {
-    if (typeof window !== "undefined") {
+  const [specializationsList, setSpecializationsList] = useState<string[]>(SPECIALIZATIONS);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && storageKey) {
       try {
-        const saved = localStorage.getItem("dms_custom_specializations");
+        const saved = localStorage.getItem(storageKey);
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
-            const set = new Set([...SPECIALIZATIONS, ...parsed]);
-            return Array.from(set);
+            setSpecializationsList(Array.from(new Set([...SPECIALIZATIONS, ...parsed])));
           }
         }
       } catch (e) {}
     }
-    return SPECIALIZATIONS;
-  });
+  }, [storageKey]);
+
   const [isAddingSpec, setIsAddingSpec] = useState(false);
   const [newSpecInput, setNewSpecInput] = useState("");
 
@@ -236,13 +235,14 @@ export default function DoctorsPage() {
       setSpecializationsList(updated);
       try {
         const customOnly = updated.filter((s) => !SPECIALIZATIONS.includes(s));
-        localStorage.setItem("dms_custom_specializations", JSON.stringify(customOnly));
+        localStorage.setItem(storageKey, JSON.stringify(customOnly));
       } catch (e) {}
     }
     update("specialization", formatted);
     setIsAddingSpec(false);
     setNewSpecInput("");
   };
+
 
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
@@ -1191,6 +1191,7 @@ export default function DoctorsPage() {
                         }}
                         className={inputClass}
                       >
+                        <option value="">Select specialization...</option>
                         {specializationsList.map((s) => (
                           <option key={s} value={s}>
                             {s}

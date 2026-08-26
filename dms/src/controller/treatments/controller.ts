@@ -4,6 +4,7 @@ import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { createTreatmentSchema, updateTreatmentSchema } from "@/lib/validators/treatments";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { checkInventoryEnabled } from "../inventory/inventoryItem/controller";
+import { getImageUrl } from "@/lib/cloudinary/storage";
 
 export type TreatmentErrorCode =
   | "UNAUTHORIZED"
@@ -27,6 +28,18 @@ async function findOwnedTreatment(treatmentId: string, orgId: string) {
     .limit(1);
   return rows[0] ?? null;
 }
+
+let hasEnsuredImageUrlColumn = false;
+async function ensureImageUrlColumn() {
+  if (hasEnsuredImageUrlColumn) return;
+  try {
+    await db.execute(sql`ALTER TABLE treatments ADD COLUMN IF NOT EXISTS image_url text;`);
+    hasEnsuredImageUrlColumn = true;
+  } catch (e) {
+    // Ignore if already exists
+  }
+}
+
 export type CreateTreatmentResult =
   | { success: true; treatment: typeof treatments.$inferSelect }
   | { success: false; error: string; code: TreatmentErrorCode };
@@ -34,6 +47,7 @@ export type CreateTreatmentResult =
 export async function createTreatment(input: unknown): Promise<CreateTreatmentResult> {
   try {
     const session = await requireSession();
+    await ensureImageUrlColumn();
 
     const parsed = createTreatmentSchema.safeParse(input);
     if (!parsed.success) {
@@ -48,11 +62,11 @@ export async function createTreatment(input: unknown): Promise<CreateTreatmentRe
       return { success: false, error: "Location not found.", code: "NOT_FOUND" };
     }
 
-    // ADDED - checked once, decides whether the supply rows below
-    // actually get written. Keeps writes consistent with getTreatments'
-    // display logic: if inventory is off, nothing about supplies is
-    // ever shown OR stored, not just hidden after the fact.
     const inventoryOn = await checkInventoryEnabled(session.orgId);
+
+    const treatmentPhoto = data.photoKey
+      ? getImageUrl(data.photoKey)
+      : data.imageUrl ?? null;
 
     const treatment = await db.transaction(async (tx) => {
       const [newTreatment] = await tx
@@ -69,12 +83,10 @@ export async function createTreatment(input: unknown): Promise<CreateTreatmentRe
           description: data.description,
           procedureSteps: data.procedureSteps,
           aftercareInstructions: data.aftercareInstructions,
+          imageUrl: treatmentPhoto,
         })
         .returning();
 
-      // CHANGED - only writes supply rows if inventory is actually on.
-      // While off, every treatment is created as if hasNoSupplies were
-      // true, regardless of what was actually sent in the request.
       if (inventoryOn && !data.hasNoSupplies && data.supplies) {
         await tx.insert(treatmentSupplies).values(
           data.supplies.map((s) => ({
@@ -120,6 +132,7 @@ export async function getTreatments(
 ): Promise<GetTreatmentsResult> {
   try {
     const session = await requireSession();
+    await ensureImageUrlColumn();
 
     const limit = Math.min(Math.max(options?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const offset = Math.max(options?.offset ?? 0, 0);
@@ -147,6 +160,7 @@ export async function getTreatments(
           description: treatments.description,
           procedureSteps: treatments.procedureSteps,
           aftercareInstructions: treatments.aftercareInstructions,
+          imageUrl: treatments.imageUrl,
           createdAt: treatments.createdAt,
           updatedAt: treatments.updatedAt,
         })
@@ -163,11 +177,6 @@ export async function getTreatments(
         .where(whereClause),
     ]);
 
-    // CHANGED - the whole supply-fetching block now only runs if
-    // inventory is actually on. If it's off, every treatment just gets
-    // an empty supplies array - the real data in treatment_supplies is
-    // untouched in the database, this only affects what THIS response
-    // exposes.
     let treatmentsWithSupplies = results.map((t) => ({ ...t, supplies: [] as TreatmentSupplyRow[] }));
 
     if (inventoryOn) {
@@ -243,6 +252,11 @@ export async function updateTreatment(treatmentId: string, input: unknown): Prom
     if (treatmentFields.description !== undefined) updateValues.description = treatmentFields.description;
     if (treatmentFields.procedureSteps !== undefined) updateValues.procedureSteps = treatmentFields.procedureSteps;
     if (treatmentFields.aftercareInstructions !== undefined) updateValues.aftercareInstructions = treatmentFields.aftercareInstructions;
+    if (treatmentFields.photoKey !== undefined) {
+      updateValues.imageUrl = treatmentFields.photoKey ? getImageUrl(treatmentFields.photoKey) : null;
+    } else if (treatmentFields.imageUrl !== undefined) {
+      updateValues.imageUrl = treatmentFields.imageUrl;
+    }
 
     const updated = await db.transaction(async (tx) => {
       const [updatedTreatment] = await tx

@@ -140,6 +140,13 @@ export default function DoctorAvailabilityTab() {
     let locId = locationId;
 
     if (!locId) {
+      const userRes = await axios.get("/api/user-details").catch(() => null);
+      if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
+        locId = userRes.data.data.user.locationId;
+      }
+    }
+
+    if (!locId) {
       // Try to read from localStorage if available
       try {
         const savedLoc = localStorage.getItem("dms_location_id") || localStorage.getItem("current_location_id");
@@ -213,7 +220,8 @@ export default function DoctorAvailabilityTab() {
         const rawAppts = apptsRes?.data?.data?.appointments || [];
 
         if (Array.isArray(rawDoctors) && rawDoctors.length > 0) {
-          const dayOfWeek = new Date(`${selectedDate}T00:00:00`).getDay();
+          const [y, m, dNum] = selectedDate.split("-").map(Number);
+          const dayOfWeek = new Date(y, (m || 1) - 1, dNum || 1).getDay();
 
           docList = await Promise.all(
             rawDoctors.map(async (d: any) => {
@@ -223,12 +231,12 @@ export default function DoctorAvailabilityTab() {
                 ? schedArr.find((s: any) => s.dayOfWeek === dayOfWeek)
                 : null;
 
-              if (!daySched || daySched.isOnLeave) {
+              if (daySched?.isOnLeave) {
                 return {
                   id: d.id,
                   name: d.name || d.fullName || "Doctor",
                   specialization: d.specialization || "General Dentistry",
-                  status: daySched?.isOnLeave ? ("on_leave" as const) : ("not_scheduled" as const),
+                  status: "on_leave" as const,
                   shiftStart: null,
                   shiftEnd: null,
                   openSlots: 0,
@@ -236,8 +244,21 @@ export default function DoctorAvailabilityTab() {
                 };
               }
 
-              const startTime = daySched.startTime ? (daySched.startTime.length === 5 ? `${daySched.startTime}:00` : daySched.startTime) : "09:00:00";
-              const endTime = daySched.endTime ? (daySched.endTime.length === 5 ? `${daySched.endTime}:00` : daySched.endTime) : "17:00:00";
+              if (!daySched && (dayOfWeek === 0 || dayOfWeek === 6)) {
+                return {
+                  id: d.id,
+                  name: d.name || d.fullName || "Doctor",
+                  specialization: d.specialization || "General Dentistry",
+                  status: "on_leave" as const,
+                  shiftStart: null,
+                  shiftEnd: null,
+                  openSlots: 0,
+                  segments: [],
+                };
+              }
+
+              const startTime = daySched?.startTime ? (daySched.startTime.length === 5 ? `${daySched.startTime}:00` : daySched.startTime) : "09:00:00";
+              const endTime = daySched?.endTime ? (daySched.endTime.length === 5 ? `${daySched.endTime}:00` : daySched.endTime) : "17:00:00";
 
               const docAppts = Array.isArray(rawAppts)
                 ? rawAppts.filter((a: any) => {
@@ -253,9 +274,9 @@ export default function DoctorAvailabilityTab() {
                 startTime,
                 endTime,
                 docAppts,
-                daySched.breakStartTime,
-                daySched.breakEndTime,
-                typeof daySched.bufferTime === "number" ? daySched.bufferTime : 30
+                daySched?.breakStartTime,
+                daySched?.breakEndTime,
+                typeof daySched?.bufferTime === "number" ? daySched.bufferTime : 30
               );
 
               return {

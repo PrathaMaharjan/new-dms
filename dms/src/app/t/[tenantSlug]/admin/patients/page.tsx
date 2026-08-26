@@ -117,7 +117,13 @@ export default function PatientsPage() {
     try {
       setLoading(true);
       setLoadError(null);
-      const res = await axios.get("/api/patent");
+
+      const userRes = await axios.get("/api/user-details").catch(() => null);
+      const locId = userRes?.data?.success ? userRes.data.data?.user?.locationId : undefined;
+
+      const res = await axios.get("/api/patent", {
+        params: locId ? { locationId: locId } : undefined,
+      });
       if (res.data?.success && res.data.data?.patients) {
         const rawPatients = res.data.data.patients;
         const mapped: Patient[] = await Promise.all(

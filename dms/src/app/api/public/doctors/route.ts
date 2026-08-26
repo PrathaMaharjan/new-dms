@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { organizations, users, userLocationRoles } from "@/db/schema";
+import { organizations, users, userLocationRoles, providerProfiles } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
+import { getImageUrl } from "@/lib/cloudinary/storage";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -15,8 +16,15 @@ export async function OPTIONS() {
 
 export async function GET(request: NextRequest) {
   try {
-    const locationId = request.nextUrl.searchParams.get("locationId") ?? undefined;
+    const locationId = request.nextUrl.searchParams.get("locationId")?.trim() || undefined;
     const tenantSlug = request.nextUrl.searchParams.get("tenantSlug")?.trim() || undefined;
+
+    if (!tenantSlug && !locationId) {
+      return NextResponse.json(
+        { success: false, error: "tenantSlug or locationId is required" },
+        { status: 400, headers: corsHeaders }
+      );
+    }
 
     let orgId: string | undefined;
     if (tenantSlug) {
@@ -37,9 +45,15 @@ export async function GET(request: NextRequest) {
       .select({
         id: users.id,
         name: users.name,
+        specialization: providerProfiles.specialization,
+        qualification: providerProfiles.qualification,
+        photoUrl: providerProfiles.photoUrl,
+        yearsOfExperience: providerProfiles.yearsOfExperience,
+        bio: providerProfiles.bio,
       })
       .from(users)
       .leftJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
+      .leftJoin(providerProfiles, eq(providerProfiles.userId, users.id))
       .where(
         and(
           isNull(users.deletedAt),
@@ -50,9 +64,23 @@ export async function GET(request: NextRequest) {
       )
       .orderBy(users.name);
 
-    // Deduplicate by name string so options are strictly unique
+    // Deduplicate by name string and ensure photoUrl is a complete public URL
     const uniqueDoctors = Array.from(
-      new Map(clinicalDoctors.filter((d) => Boolean(d.name)).map((d) => [d.name.trim(), d])).values()
+      new Map(
+        clinicalDoctors
+          .filter((d) => Boolean(d.name))
+          .map((d) => {
+            const resolvedUrl = d.photoUrl ? getImageUrl(d.photoUrl, { width: 400, height: 400 }) : null;
+            return [
+              d.name.trim(),
+              {
+                ...d,
+                imageUrl: resolvedUrl,
+                photoUrl: resolvedUrl,
+              },
+            ];
+          })
+      ).values()
     );
 
     return NextResponse.json(
@@ -70,3 +98,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

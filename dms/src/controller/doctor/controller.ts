@@ -32,6 +32,7 @@ import {
   lt,
   lte,
   ne,
+  or,
   sql,
 } from "drizzle-orm";
 
@@ -936,25 +937,26 @@ export async function getAllDoctorsScheduleTimeline(
   try {
     const session = await requireSession();
     const activeDate = date || new Date().toISOString().slice(0, 10);
-    const dayOfWeek = new Date(`${activeDate}T00:00:00`).getDay();
+    const [y, m, d] = activeDate.split("-").map(Number);
+    const dayOfWeek = new Date(y, (m || 1) - 1, d || 1).getDay();
 
     const whereClause = locationId
       ? and(
           eq(userLocationRoles.locationId, locationId),
           eq(userLocationRoles.role, "clinical"),
           eq(users.orgId, session.orgId),
-          eq(users.isActive, true),
+          or(eq(users.isActive, true), isNull(users.isActive)),
           isNull(users.deletedAt),
         )
       : and(
           eq(userLocationRoles.role, "clinical"),
           eq(users.orgId, session.orgId),
-          eq(users.isActive, true),
+          or(eq(users.isActive, true), isNull(users.isActive)),
           isNull(users.deletedAt),
         );
 
     // Fetch doctors
-    const doctorsFound = await db
+    let doctorsFound = await db
       .select({
         id: users.id,
         name: users.name,
@@ -965,6 +967,27 @@ export async function getAllDoctorsScheduleTimeline(
       .leftJoin(providerProfiles, eq(providerProfiles.userId, users.id))
       .where(whereClause)
       .orderBy(users.name);
+
+    if (doctorsFound.length === 0 && locationId) {
+      doctorsFound = await db
+        .select({
+          id: users.id,
+          name: users.name,
+          specialization: providerProfiles.specialization,
+        })
+        .from(users)
+        .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
+        .leftJoin(providerProfiles, eq(providerProfiles.userId, users.id))
+        .where(
+          and(
+            eq(userLocationRoles.role, "clinical"),
+            eq(users.orgId, session.orgId),
+            or(eq(users.isActive, true), isNull(users.isActive)),
+            isNull(users.deletedAt),
+          )
+        )
+        .orderBy(users.name);
+    }
 
     // Deduplicate doctors
     const uniqueDoctorsMap = new Map<string, (typeof doctorsFound)[0]>();
@@ -1052,12 +1075,12 @@ export async function getAllDoctorsScheduleTimeline(
     const doctors = uniqueDoctors.map((doc) => {
       const sched = scheduleByDoc.get(doc.id);
 
-      if (!sched || !sched.startTime || !sched.endTime || sched.isOnLeave) {
+      if (sched?.isOnLeave) {
         return {
           id: doc.id,
           name: doc.name,
           specialization: doc.specialization,
-          status: sched?.isOnLeave ? ("on_leave" as const) : ("not_scheduled" as const),
+          status: "on_leave" as const,
           shiftStart: null,
           shiftEnd: null,
           openSlots: 0,
@@ -1065,8 +1088,34 @@ export async function getAllDoctorsScheduleTimeline(
         };
       }
 
-      const sTimeStr = sched.startTime.slice(0, 5);
-      const eTimeStr = sched.endTime.slice(0, 5);
+      // If doctor has explicit schedule, use it; otherwise use clinic default (09:00 - 17:00 on Mon-Fri, leave on Sun/Sat)
+      let sTimeStr = "09:00";
+      let eTimeStr = "17:00";
+      let breakStart: string | null = null;
+      let breakEnd: string | null = null;
+      let bufferMinutes = 30;
+
+      if (sched && sched.startTime && sched.endTime) {
+        sTimeStr = sched.startTime.slice(0, 5);
+        eTimeStr = sched.endTime.slice(0, 5);
+        breakStart = sched.breakStartTime ? sched.breakStartTime.slice(0, 5) : null;
+        breakEnd = sched.breakEndTime ? sched.breakEndTime.slice(0, 5) : null;
+        bufferMinutes = typeof sched.bufferTime === "number" ? sched.bufferTime : 30;
+      } else if (!sched) {
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+          return {
+            id: doc.id,
+            name: doc.name,
+            specialization: doc.specialization,
+            status: "on_leave" as const,
+            shiftStart: null,
+            shiftEnd: null,
+            openSlots: 0,
+            segments: [],
+          };
+        }
+      }
+
       const shiftStartMins = toMins(sTimeStr);
       const shiftEndMins = toMins(eTimeStr);
 
@@ -1083,16 +1132,15 @@ export async function getAllDoctorsScheduleTimeline(
         };
       }
 
-      const docBufferMinutes =
-        typeof sched.bufferTime === "number" ? sched.bufferTime : 30;
+      const docBufferMinutes = bufferMinutes;
 
       type Interval = { startMins: number; endMins: number; type: "booked" | "break" };
       const busyList: Interval[] = [];
 
       // Break window
-      if (sched.breakStartTime && sched.breakEndTime) {
-        const bStart = toMins(sched.breakStartTime.slice(0, 5));
-        const bEnd = toMins(sched.breakEndTime.slice(0, 5));
+      if (breakStart && breakEnd) {
+        const bStart = toMins(breakStart);
+        const bEnd = toMins(breakEnd);
         if (bEnd > bStart) {
           busyList.push({ startMins: bStart, endMins: bEnd, type: "break" });
         }

@@ -200,18 +200,25 @@ export default function AdminDashboardPage() {
 
       let currentLocId = locationId;
       if (!currentLocId) {
-        const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
-          axios.get("/api/services").catch(() => null),
-          axios.get("/api/treatment").catch(() => null),
-          axios.get("/api/patent").catch(() => null),
-        ]);
+        const userRes = await axios.get("/api/user-details").catch(() => null);
+        if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
+          currentLocId = userRes.data.data.user.locationId;
+        }
 
-        if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
-          currentLocId = servicesRes.data.data.services[0].locationId;
-        } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
-          currentLocId = treatmentsRes.data.data.treatments[0].locationId;
-        } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
-          currentLocId = patientsRes.data.data.patients[0].locationId;
+        if (!currentLocId) {
+          const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
+            axios.get("/api/services").catch(() => null),
+            axios.get("/api/treatment").catch(() => null),
+            axios.get("/api/patent").catch(() => null),
+          ]);
+
+          if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
+            currentLocId = servicesRes.data.data.services[0].locationId;
+          } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
+            currentLocId = treatmentsRes.data.data.treatments[0].locationId;
+          } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
+            currentLocId = patientsRes.data.data.patients[0].locationId;
+          }
         }
 
         if (currentLocId) {

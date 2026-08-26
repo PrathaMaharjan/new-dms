@@ -186,8 +186,12 @@ export default function DoctorAppointmentsTab() {
       let myUserId: string | null = null;
 
       const userRes = await axios.get("/api/user-details").catch(() => null);
-      if (userRes?.data?.success && userRes.data.data?.user?.id) {
-        myUserId = userRes.data.data.user.id;
+      if (userRes?.data?.success && userRes.data.data?.user) {
+        myUserId = userRes.data.data.user.id || null;
+        if (!currentLocId && userRes.data.data.user.locationId) {
+          currentLocId = userRes.data.data.user.locationId;
+          setLocationId(currentLocId);
+        }
       }
 
       if (!currentLocId) {

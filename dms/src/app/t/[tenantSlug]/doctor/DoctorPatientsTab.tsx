@@ -114,10 +114,19 @@ export default function DoctorPatientsTab() {
       setErrorMsg(null);
 
 
+      let myUserId: string | null = null;
+      let currentLocId: string | null = null;
+
+      const userRes = await axios.get("/api/user-details").catch(() => null);
+      if (userRes?.data?.success && userRes.data.data?.user) {
+        myUserId = userRes.data.data.user.id || null;
+        currentLocId = userRes.data.data.user.locationId || null;
+      }
+
       const [treatmentsRes, servicesRes, patientsRes] = await Promise.all([
-        axios.get("/api/treatment").catch(() => null),
-        axios.get("/api/services").catch(() => null),
-        axios.get("/api/patent").catch(() => null),
+        axios.get("/api/treatment", { params: currentLocId ? { locationId: currentLocId } : undefined }).catch(() => null),
+        axios.get("/api/services", { params: currentLocId ? { locationId: currentLocId } : undefined }).catch(() => null),
+        axios.get("/api/patent", { params: currentLocId ? { locationId: currentLocId } : undefined }).catch(() => null),
       ]);
 
       const allServices: ServiceItem[] = [];
@@ -160,20 +169,14 @@ export default function DoctorPatientsTab() {
         setNewService((prev) => prev || allServices[0].name);
       }
 
-
-      let currentLocId: string | null = null;
-      if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
-        currentLocId = treatmentsRes.data.data.treatments[0].locationId;
-      } else if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
-        currentLocId = servicesRes.data.data.services[0].locationId;
-      } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
-        currentLocId = patientsRes.data.data.patients[0].locationId;
-      }
-
-      let myUserId: string | null = null;
-      const userRes = await axios.get("/api/user-details").catch(() => null);
-      if (userRes?.data?.success && userRes.data.data?.user?.id) {
-        myUserId = userRes.data.data.user.id;
+      if (!currentLocId) {
+        if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
+          currentLocId = treatmentsRes.data.data.treatments[0].locationId;
+        } else if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
+          currentLocId = servicesRes.data.data.services[0].locationId;
+        } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
+          currentLocId = patientsRes.data.data.patients[0].locationId;
+        }
       }
 
       const patientApptsMap: Record<string, any[]> = {};

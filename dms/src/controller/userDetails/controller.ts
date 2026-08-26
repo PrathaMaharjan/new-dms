@@ -1,7 +1,7 @@
 // src/lib/controllers/users.controller.ts
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { providerProfiles, userLocationRoles, users } from "@/db/schema";
+import { locations, providerProfiles, userLocationRoles, users } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { updateMyDetailsSchema } from "@/lib/validators/users";
 import { hashPassword, verifyPassword } from "@/lib/auth/hash";
@@ -130,11 +130,20 @@ export async function changeMyPassword(input: unknown): Promise<ChangePasswordRe
   }
 }
 
-// get my detail
 export type GetMyDetailsResult =
   | {
       success: true;
-      user: { id: string; name: string; email: string; phone: string | null; photoUrl: string | null };
+      user: {
+        id: string;
+        name: string;
+        email: string;
+        phone: string | null;
+        photoUrl: string | null;
+        isOwner?: boolean;
+        role?: string | null;
+        locationId?: string | null;
+        locations?: { locationId: string; role: string; locationName: string | null }[];
+      };
     }
   | { success: false; error: string; code: UserErrorCode };
 
@@ -147,6 +156,19 @@ export async function getMyDetails(): Promise<GetMyDetailsResult> {
       return { success: false, error: "Account not found.", code: "VALIDATION" };
     }
 
+    const locationRoles = await db
+      .select({
+        locationId: userLocationRoles.locationId,
+        role: userLocationRoles.role,
+        locationName: locations.name,
+      })
+      .from(userLocationRoles)
+      .leftJoin(locations, eq(locations.id, userLocationRoles.locationId))
+      .where(eq(userLocationRoles.userId, session.userId));
+
+    const primaryLocationId = locationRoles[0]?.locationId ?? null;
+    const primaryRole = user.isOwner ? "owner" : (locationRoles[0]?.role ?? null);
+
     return {
       success: true,
       user: {
@@ -155,6 +177,10 @@ export async function getMyDetails(): Promise<GetMyDetailsResult> {
         email: user.email,
         phone: user.phone,
         photoUrl: imagePresets.thumbnail(user.photoUrl),
+        isOwner: user.isOwner,
+        role: primaryRole,
+        locationId: primaryLocationId,
+        locations: locationRoles,
       },
     };
   } catch (err) {

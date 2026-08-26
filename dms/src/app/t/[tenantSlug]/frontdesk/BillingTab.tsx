@@ -207,6 +207,22 @@ export default function BillingPage() {
   useEffect(() => {
     async function loadStaffLocation() {
       try {
+        let locId = "";
+        try {
+          const savedLoc =
+            localStorage.getItem("dms_location_id") ||
+            localStorage.getItem("current_location_id") ||
+            localStorage.getItem("locationId");
+          if (savedLoc) locId = savedLoc;
+        } catch (e) {}
+
+        if (!locId) {
+          const userRes = await axios.get("/api/user-details").catch(() => null);
+          if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
+            locId = userRes.data.data.user.locationId;
+          }
+        }
+
         const [outletsRes, servicesRes, treatmentsRes, patientsRes] = await Promise.all([
           axios.get("/api/outlets").catch(() => null),
           axios.get("/api/services").catch(() => null),
@@ -214,22 +230,28 @@ export default function BillingPage() {
           axios.get("/api/patent").catch(() => null),
         ]);
 
-        let locId = "";
         if (outletsRes?.data?.success && Array.isArray(outletsRes.data.data.locations) && outletsRes.data.data.locations.length > 0) {
           const list: Location[] = outletsRes.data.data.locations;
           setLocations(list);
-          locId = list[0].id;
+          if (!locId) locId = list[0].id;
         }
 
-        if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
-          locId = servicesRes.data.data.services[0].locationId || locId;
-        } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
-          locId = treatmentsRes.data.data.treatments[0].locationId || locId;
-        } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
-          locId = patientsRes.data.data.patients[0].locationId || locId;
+        if (!locId) {
+          if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
+            locId = servicesRes.data.data.services[0].locationId;
+          } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
+            locId = treatmentsRes.data.data.treatments[0].locationId;
+          } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
+            locId = patientsRes.data.data.patients[0].locationId;
+          }
         }
 
-        if (locId) setLocationId(locId);
+        if (locId) {
+          setLocationId(locId);
+          try {
+            localStorage.setItem("dms_location_id", locId);
+          } catch (e) {}
+        }
       } catch {
       }
     }

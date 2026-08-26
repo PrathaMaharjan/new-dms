@@ -363,15 +363,15 @@ export async function getUpNextAppointment(
     const [result] = await db
       .select({
         id: appointments.id,
-        patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
+        patientName: sql<string>`coalesce(${patients.firstName} || ' ' || ${patients.lastName}, 'Patient')`,
         patientPhone: patients.phone,
-        treatmentName: treatments.name,
+        treatmentName: sql<string>`coalesce(${treatments.name}, 'General Consultation')`,
         startTime: appointments.startTime,
         notes: appointments.notes,
       })
       .from(appointments)
-      .innerJoin(patients, eq(appointments.patientId, patients.id))
-      .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+      .leftJoin(patients, eq(appointments.patientId, patients.id))
+      .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
       .where(
         and(
           eq(appointments.providerId, session.userId),
@@ -409,11 +409,8 @@ export async function getUpNextAppointment(
     };
   }
 }
-// "Today's Schedule" - every appointment this doctor has today,
-// regardless of status (confirmed, checked in, cancelled all shown),
-// in chronological order. Unlike Up Next, this is the full list, not
-// just the next one.
 
+// "Today's Schedule" - every appointment this doctor has today
 export type TodaysScheduleResult =
   | {
       success: true;
@@ -437,14 +434,14 @@ export async function getTodaysSchedule(
     const rows = await db
       .select({
         id: appointments.id,
-        patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
-        treatmentName: treatments.name,
+        patientName: sql<string>`coalesce(${patients.firstName} || ' ' || ${patients.lastName}, 'Patient')`,
+        treatmentName: sql<string>`coalesce(${treatments.name}, 'General Consultation')`,
         startTime: appointments.startTime,
         status: appointments.status,
       })
       .from(appointments)
-      .innerJoin(patients, eq(appointments.patientId, patients.id))
-      .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+      .leftJoin(patients, eq(appointments.patientId, patients.id))
+      .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
       .where(
         and(
           eq(appointments.providerId, session.userId),
@@ -476,10 +473,7 @@ export async function getTodaysSchedule(
   }
 }
 
-// "Recent Patients Seen" - this doctor's most recently COMPLETED visits,
-// most recent first. Genuinely different from Today's Schedule: past
-// tense, completed-only, not limited to today at all.
-
+// "Recent Patients Seen" - this doctor's most recently COMPLETED visits
 export type RecentPatientsResult =
   | {
       success: true;
@@ -501,14 +495,14 @@ export async function getRecentPatientsSeen(
 
     const rows = await db
       .select({
-        patientId: patients.id,
-        patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
-        treatmentName: treatments.name,
+        patientId: appointments.patientId,
+        patientName: sql<string>`coalesce(${patients.firstName} || ' ' || ${patients.lastName}, 'Patient')`,
+        treatmentName: sql<string>`coalesce(${treatments.name}, 'General Consultation')`,
         date: sql<string>`to_char(${appointments.startTime}, 'YYYY-MM-DD')`,
       })
       .from(appointments)
-      .innerJoin(patients, eq(appointments.patientId, patients.id))
-      .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+      .leftJoin(patients, eq(appointments.patientId, patients.id))
+      .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
       .where(
         and(
           eq(appointments.providerId, session.userId),

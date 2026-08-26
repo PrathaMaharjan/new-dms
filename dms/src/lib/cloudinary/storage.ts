@@ -57,4 +57,9 @@ export const uploadConfig = {
     maxSizeMB: 2,
     allowedTypes: ["image/jpeg", "image/png", "image/webp"],
   },
+  treatmentPhoto: {
+    folder: "dental/treatments",
+    maxSizeMB: 5,
+    allowedTypes: ["image/jpeg", "image/png", "image/webp"],
+  },
 };

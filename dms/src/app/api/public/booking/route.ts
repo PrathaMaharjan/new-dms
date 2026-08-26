@@ -11,7 +11,7 @@ import {
 import { and, eq, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import { sendBookingRequestReceived } from "@/lib/email/sendBookingRequestReceived";
-import { checkRateLimit } from "@/lib/rate-limit";
+// import { checkRateLimit } from "@/lib/rate-limit";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -113,11 +113,11 @@ export async function POST(request: NextRequest) {
     // 2. Resolve Treatment (MUST be a valid row in `treatments` table for this location so innerJoin succeeds)
     let treatment = data.serviceName
       ? await db.query.treatments.findFirst({
-          where: and(
-            eq(treatments.locationId, location.id),
-            ilike(treatments.name, data.serviceName.trim()),
-          ),
-        })
+        where: and(
+          eq(treatments.locationId, location.id),
+          ilike(treatments.name, data.serviceName.trim()),
+        ),
+      })
       : null;
 
     if (!treatment && data.serviceName) {
@@ -154,12 +154,12 @@ export async function POST(request: NextRequest) {
 
     let provider = !isNoPreference
       ? await db.query.users.findFirst({
-          where: and(
-            eq(users.orgId, location.orgId),
-            ilike(users.name, data.dentistName!.trim()),
-            isNull(users.deletedAt),
-          ),
-        })
+        where: and(
+          eq(users.orgId, location.orgId),
+          ilike(users.name, data.dentistName!.trim()),
+          isNull(users.deletedAt),
+        ),
+      })
       : null;
 
     if (!provider) {

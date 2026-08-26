@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { appointments, patients, treatments, userLocationRoles, users } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
-import { and, eq, gte, lte, ne, sql } from "drizzle-orm";
+import { and, eq, gte, isNull, lte, ne, or, sql } from "drizzle-orm";
 
 export type FrontDeskErrorCode = "UNAUTHORIZED" | "SERVER_ERROR";
 
@@ -110,24 +110,112 @@ export async function getFrontDeskStats(
     };
   }
 }
-// ---------- Appointments For Last 7 Days (clinic-wide) ----------
+// ---------- Appointments Trend (7 Days, 30 Days, 1 Year) (clinic-wide) ----------
+export type FrontDeskTrendItem = { label: string; day?: string; date?: string; count: number };
+
 export type FrontDeskChartResult =
-  | { success: true; days: { day: string; date: string; count: number }[] }
+  | { success: true; days: FrontDeskTrendItem[]; trend: FrontDeskTrendItem[] }
   | { success: false; error: string; code: FrontDeskErrorCode };
 
-export async function getFrontDeskLast7Days(
+export async function getFrontDeskAppointmentTrend(
   locationId: string,
+  range: "7days" | "30days" | "1year" | "7d" | "1m" | "1y" = "7days"
 ): Promise<FrontDeskChartResult> {
   try {
     await requireSession();
+    const normalizedRange =
+      range === "1m" ? "30days" : range === "1y" ? "1year" : range === "7d" ? "7days" : range;
+
     const now = new Date();
 
-    const days: { day: string; date: string; count: number }[] = [];
+    if (normalizedRange === "30days") {
+      const weekStarts: Date[] = [];
+      for (let i = 3; i >= 0; i--) {
+        const d = startOfDay(new Date(now));
+        d.setDate(d.getDate() - i * 7 - 6);
+        weekStarts.push(d);
+      }
+
+      const rangeStart = weekStarts[0];
+
+      const rows = await db
+        .select({ startTime: appointments.startTime })
+        .from(appointments)
+        .where(
+          and(
+            eq(appointments.locationId, locationId),
+            gte(appointments.startTime, rangeStart),
+            lte(appointments.startTime, endOfDay(now)),
+            ne(appointments.status, "cancelled")
+          )
+        );
+
+      const counts = [0, 0, 0, 0];
+      for (const row of rows) {
+        for (let i = 3; i >= 0; i--) {
+          const weekStart = weekStarts[i];
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 7);
+          if (row.startTime >= weekStart && row.startTime < weekEnd) {
+            counts[i]++;
+            break;
+          }
+        }
+      }
+
+      const trend: FrontDeskTrendItem[] = counts.map((count, i) => ({
+        label: `Week ${i + 1}`,
+        count,
+      }));
+
+      return { success: true, days: trend, trend };
+    }
+
+    if (normalizedRange === "1year") {
+      const rangeStart = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
+      const rows = await db
+        .select({
+          year: sql<number>`extract(year from ${appointments.startTime})::int`,
+          month: sql<number>`extract(month from ${appointments.startTime})::int`,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(appointments)
+        .where(
+          and(
+            eq(appointments.locationId, locationId),
+            gte(appointments.startTime, rangeStart),
+            lte(appointments.startTime, endOfDay(now)),
+            ne(appointments.status, "cancelled")
+          )
+        )
+        .groupBy(
+          sql`extract(year from ${appointments.startTime})`,
+          sql`extract(month from ${appointments.startTime})`
+        );
+
+      const countsByMonth = new Map(rows.map((r) => [`${r.year}-${r.month}`, r.count]));
+      const trend: FrontDeskTrendItem[] = Array.from({ length: 12 }, (_, i) => {
+        const d = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + i, 1);
+        const key = `${d.getFullYear()}-${d.getMonth() + 1}`;
+        return {
+          label: d.toLocaleDateString("en-US", { month: "short" }),
+          count: countsByMonth.get(key) ?? 0,
+        };
+      });
+
+      return { success: true, days: trend, trend };
+    }
+
+    // Default: 7 days
+    const days: { label: string; day: string; date: string; count: number }[] = [];
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
+      const dayName = d.toLocaleDateString("en-US", { weekday: "short" });
       days.push({
-        day: d.toLocaleDateString("en-US", { weekday: "short" }),
+        label: dayName,
+        day: dayName,
         date: d.toISOString().slice(0, 10),
         count: 0,
       });
@@ -145,8 +233,8 @@ export async function getFrontDeskLast7Days(
           eq(appointments.locationId, locationId),
           gte(appointments.startTime, sevenDaysAgo),
           lte(appointments.startTime, endOfDay(now)),
-          ne(appointments.status, "cancelled"),
-        ),
+          ne(appointments.status, "cancelled")
+        )
       )
       .groupBy(sql`to_char(${appointments.startTime}, 'YYYY-MM-DD')`);
 
@@ -156,7 +244,7 @@ export async function getFrontDeskLast7Days(
       count: countsByDate.get(d.date) ?? 0,
     }));
 
-    return { success: true, days: merged };
+    return { success: true, days: merged, trend: merged };
   } catch (err) {
     if (err instanceof SessionError) {
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
@@ -164,11 +252,13 @@ export async function getFrontDeskLast7Days(
     console.error(err);
     return {
       success: false,
-      error: "Something went wrong loading the weekly chart.",
+      error: "Something went wrong loading the appointment trend.",
       code: "SERVER_ERROR",
     };
   }
 }
+
+export const getFrontDeskLast7Days = getFrontDeskAppointmentTrend;
 
 // ---------- Today's Status donut (clinic-wide) ----------
 
@@ -244,10 +334,6 @@ export async function getDoctorLoadToday(
     const session = await requireSession();
     const now = new Date();
 
-    // Every active clinical doctor at this location - LEFT joined against
-    // today's appointments, so a doctor with zero bookings still shows
-    // up at 0 (matching "John rai" and "haha" both at 0 appts in the
-    // screenshot), rather than silently disappearing from the list.
     const rows = await db
       .select({
         doctorId: users.id,
@@ -270,7 +356,8 @@ export async function getDoctorLoadToday(
           eq(userLocationRoles.locationId, locationId),
           eq(userLocationRoles.role, "clinical"),
           eq(users.orgId, session.orgId),
-          eq(users.isActive, true),
+          or(eq(users.isActive, true), isNull(users.isActive)),
+          isNull(users.deletedAt),
         ),
       )
       .groupBy(users.id, users.name)
@@ -308,7 +395,7 @@ export type FrontDeskScheduleResult =
     }
   | { success: false; error: string; code: FrontDeskErrorCode };
 
-  export async function getFrontDeskTodaysSchedule(locationId: string): Promise<FrontDeskScheduleResult> {
+export async function getFrontDeskTodaysSchedule(locationId: string): Promise<FrontDeskScheduleResult> {
   try {
     await requireSession();
     const now = new Date();
@@ -316,21 +403,22 @@ export type FrontDeskScheduleResult =
     const rows = await db
       .select({
         id: appointments.id,
-        patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
-        doctorName: users.name,
-        treatmentName: treatments.name,
+        patientName: sql<string>`coalesce(${patients.firstName} || ' ' || ${patients.lastName}, 'Patient')`,
+        doctorName: sql<string>`coalesce(${users.name}, 'Doctor')`,
+        treatmentName: sql<string>`coalesce(${treatments.name}, 'General Consultation')`,
         startTime: appointments.startTime,
         status: appointments.status,
       })
       .from(appointments)
-      .innerJoin(patients, eq(appointments.patientId, patients.id))
-      .innerJoin(users, eq(appointments.providerId, users.id))
-      .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+      .leftJoin(patients, eq(appointments.patientId, patients.id))
+      .leftJoin(users, eq(appointments.providerId, users.id))
+      .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
       .where(
         and(
           eq(appointments.locationId, locationId),
           gte(appointments.startTime, startOfDay(now)),
-          lte(appointments.startTime, endOfDay(now))
+          lte(appointments.startTime, endOfDay(now)),
+          ne(appointments.status, "cancelled")
         )
       )
       .orderBy(appointments.startTime);

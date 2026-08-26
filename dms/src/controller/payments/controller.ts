@@ -341,7 +341,8 @@ export async function getBillingStats(
         .where(
           and(
             eq(patients.orgId, session.orgId),
-            eq(patients.locationId, locationId),
+            or(eq(patients.locationId, locationId), isNull(patients.locationId)),
+            isNull(patients.deletedAt),
           ),
         ),
       db
@@ -354,7 +355,8 @@ export async function getBillingStats(
         .where(
           and(
             eq(patients.orgId, session.orgId),
-            eq(patients.locationId, locationId),
+            or(eq(patients.locationId, locationId), isNull(patients.locationId)),
+            isNull(patients.deletedAt),
           ),
         )
         .groupBy(patients.id),
@@ -434,7 +436,8 @@ export async function getBillingPatients(
 
     const conditions = [
       eq(patients.orgId, session.orgId),
-      eq(patients.locationId, locationId),
+      or(eq(patients.locationId, locationId), isNull(patients.locationId)),
+      isNull(patients.deletedAt),
     ];
     if (options?.search) {
       conditions.push(

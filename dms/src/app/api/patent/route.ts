@@ -9,10 +9,11 @@ const STATUS_BY_CODE: Record<PatientErrorCode, number> = {
 };
 export async function GET(request: NextRequest) {
   const sp = request.nextUrl.searchParams;
+  const locationId = sp.get("locationId") ?? undefined;
   const limit = sp.has("limit") ? Number(sp.get("limit")) : undefined;
   const offset = sp.has("offset") ? Number(sp.get("offset")) : undefined;
 
-  const result = await getPatients({ limit, offset });
+  const result = await getPatients(locationId, { limit, offset });
 
   if (!result.success) {
     return NextResponse.json({ success: false, error: result.error }, { status: 401 });

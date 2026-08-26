@@ -139,10 +139,6 @@ async function isDoctorScheduledForWindow(params: {
   startTime: Date;
   endTime: Date;
 }) {
-  if (params.startTime.getDay() !== params.endTime.getDay()) {
-    return false;
-  }
-
   const dayOfWeek = params.startTime.getDay();
 
   const schedules = await db
@@ -155,23 +151,29 @@ async function isDoctorScheduledForWindow(params: {
       isOnLeave: providerSchedules.isOnLeave,
     })
     .from(providerSchedules)
-    .innerJoin(users, eq(users.id, providerSchedules.userId))
     .where(
       and(
         eq(providerSchedules.userId, params.providerId),
         eq(providerSchedules.dayOfWeek, dayOfWeek),
-        eq(users.isActive, true),
-        isNull(users.deletedAt),
       ),
     );
 
-  if (schedules.length === 0) return false;
+  // If doctor has no custom schedule row in database yet, treat as standard working hours (allow booking)
+  if (schedules.length === 0) {
+    return true;
+  }
 
   const schedule =
     schedules.find((s) => s.locationId === params.locationId) || schedules[0];
 
-  if (!schedule || schedule.isOnLeave || !schedule.startTime || !schedule.endTime) {
+  if (!schedule) return true;
+
+  if (schedule.isOnLeave) {
     return false;
+  }
+
+  if (!schedule.startTime || !schedule.endTime) {
+    return true;
   }
 
   const toMins = (timeStr: string) => {
@@ -212,10 +214,6 @@ async function findAvailableDoctor(
   startTime: Date,
   endTime: Date,
 ): Promise<string | null> {
-  if (startTime.getDay() !== endTime.getDay()) {
-    return null;
-  }
-
   const dayOfWeek = startTime.getDay();
 
   const schedules = await db
@@ -235,12 +233,9 @@ async function findAvailableDoctor(
       and(
         eq(providerSchedules.dayOfWeek, dayOfWeek),
         eq(providerSchedules.isOnLeave, false),
-        eq(users.isActive, true),
         isNull(users.deletedAt),
       ),
     );
-
-  if (schedules.length === 0) return null;
 
   const toMins = (timeStr: string) => {
     const [h, m] = timeStr.slice(0, 5).split(":").map(Number);
@@ -258,20 +253,49 @@ async function findAvailableDoctor(
     }
   }
 
+  if (docSchedules.size === 0) {
+    const clinicalDocs = await db
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(userLocationRoles, eq(userLocationRoles.userId, users.id))
+      .where(
+        and(
+          eq(userLocationRoles.locationId, locationId),
+          eq(userLocationRoles.role, "clinical"),
+          isNull(users.deletedAt),
+        ),
+      );
+
+    for (const doc of clinicalDocs) {
+      const conflict = await db.query.appointments.findFirst({
+        where: and(
+          eq(appointments.providerId, doc.id),
+          ne(appointments.status, "cancelled"),
+          lt(appointments.startTime, new Date(endTime.getTime() + DEFAULT_BUFFER_MINUTES * 60_000)),
+          gt(appointments.endTime, new Date(startTime.getTime() - DEFAULT_BUFFER_MINUTES * 60_000)),
+        ),
+      });
+      if (!conflict) return doc.id;
+    }
+    return null;
+  }
+
   for (const [userId, sched] of docSchedules.entries()) {
-    if (!sched.startTime || !sched.endTime || sched.isOnLeave) continue;
+    if (sched.isOnLeave) continue;
 
-    const shiftStartMins = toMins(sched.startTime);
-    const shiftEndMins = toMins(sched.endTime);
+    if (sched.startTime && sched.endTime) {
+      const shiftStartMins = toMins(sched.startTime);
+      const shiftEndMins = toMins(sched.endTime);
 
-    if (apptStartMins < shiftStartMins || apptEndMins > shiftEndMins) continue;
+      if (apptStartMins < shiftStartMins || apptEndMins > shiftEndMins) continue;
 
-    if (sched.breakStartTime && sched.breakEndTime) {
-      const breakStartMins = toMins(sched.breakStartTime);
-      const breakEndMins = toMins(sched.breakEndTime);
-      if (breakEndMins > breakStartMins) {
-        if (apptStartMins < breakEndMins && apptEndMins > breakStartMins) {
-          continue;
+      if (sched.breakStartTime && sched.breakEndTime) {
+        const breakStartMins = toMins(sched.breakStartTime);
+        const breakEndMins = toMins(sched.breakEndTime);
+        if (breakEndMins > breakStartMins) {
+          if (apptStartMins < breakEndMins && apptEndMins > breakStartMins) {
+            continue;
+          }
         }
       }
     }
