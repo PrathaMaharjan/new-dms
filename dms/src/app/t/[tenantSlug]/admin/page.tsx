@@ -95,14 +95,6 @@ interface LowStockItem {
 
 const PIE_COLORS = ["#7da3b3", "#10b981", "#6366f1", "#f59e0b", "#345263", "#ec4899", "#8b5cf6", "#06b6d4"];
 
-
-const STATIC_LOW_STOCK_ITEMS: LowStockItem[] = [
-  { id: "inv-1", name: "Dental Anesthetic Cartridges", unit: "cartridges", currentQty: 8, reorderLevel: 25 },
-  { id: "inv-2", name: "Disposable Gloves (M)", unit: "boxes", currentQty: 3, reorderLevel: 10 },
-  { id: "inv-3", name: "Composite Resin", unit: "syringes", currentQty: 5, reorderLevel: 15 },
-  { id: "inv-4", name: "Sterilization Pouches", unit: "packs", currentQty: 2, reorderLevel: 8 },
-];
-
 function getStatusBadge(status: string) {
   const s = (status || "").toLowerCase();
   if (s === "completed") return { label: "Completed", class: "bg-[#7da3b3]/15 text-[#3f6274]" };
@@ -172,8 +164,7 @@ export default function AdminDashboardPage() {
   const [todaysAppointments, setTodaysAppointments] = useState<TodaysAppointmentItem[]>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityItem[]>([]);
 
-
-  const [lowStockItems] = useState<LowStockItem[]>(STATIC_LOW_STOCK_ITEMS);
+  const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
   const [lowStockBannerDismissed, setLowStockBannerDismissed] = useState(false);
   const [lowStockExpanded, setLowStockExpanded] = useState(false);
 
@@ -200,24 +191,27 @@ export default function AdminDashboardPage() {
 
       let currentLocId = locationId;
       if (!currentLocId) {
-        const userRes = await axios.get("/api/user-details").catch(() => null);
-        if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
-          currentLocId = userRes.data.data.user.locationId;
-        }
+        const outletsRes = await axios.get("/api/outlets").catch(() => null);
+        if (outletsRes?.data?.success && Array.isArray(outletsRes.data.data?.locations) && outletsRes.data.data.locations.length > 0) {
+          currentLocId = outletsRes.data.data.locations[0].id;
+        } else {
+          const userRes = await axios.get("/api/user-details").catch(() => null);
+          if (userRes?.data?.success && userRes.data.data?.user?.locationId) {
+            currentLocId = userRes.data.data.user.locationId;
+          } else {
+            const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
+              axios.get("/api/services").catch(() => null),
+              axios.get("/api/treatment").catch(() => null),
+              axios.get("/api/patent").catch(() => null),
+            ]);
 
-        if (!currentLocId) {
-          const [servicesRes, treatmentsRes, patientsRes] = await Promise.all([
-            axios.get("/api/services").catch(() => null),
-            axios.get("/api/treatment").catch(() => null),
-            axios.get("/api/patent").catch(() => null),
-          ]);
-
-          if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
-            currentLocId = servicesRes.data.data.services[0].locationId;
-          } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
-            currentLocId = treatmentsRes.data.data.treatments[0].locationId;
-          } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
-            currentLocId = patientsRes.data.data.patients[0].locationId;
+            if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
+              currentLocId = servicesRes.data.data.services[0].locationId;
+            } else if (treatmentsRes?.data?.success && treatmentsRes.data.data.treatments?.length > 0) {
+              currentLocId = treatmentsRes.data.data.treatments[0].locationId;
+            } else if (patientsRes?.data?.success && patientsRes.data.data.patients?.length > 0) {
+              currentLocId = patientsRes.data.data.patients[0].locationId;
+            }
           }
         }
 
@@ -239,6 +233,7 @@ export default function AdminDashboardPage() {
         utilizationRes,
         appointmentsRes,
         activityRes,
+        lowStockRes,
       ] = await Promise.all([
         axios.get("/api/admin-dashboard/stats", { params: { locationId: currentLocId } }).catch(() => null),
         axios.get("/api/admin-dashboard/patent-trend", { params: { locationId: currentLocId, range: timeframe } }).catch(() => null),
@@ -246,6 +241,7 @@ export default function AdminDashboardPage() {
         axios.get("/api/admin-dashboard/doctor-utilization", { params: { locationId: currentLocId } }).catch(() => null),
         axios.get("/api/admin-dashboard/todays-appointments", { params: { locationId: currentLocId } }).catch(() => null),
         axios.get("/api/admin-dashboard/activity-feed", { params: { locationId: currentLocId, limit: 10 } }).catch(() => null),
+        axios.get("/api/inventory/item", { params: { locationId: currentLocId, lowStockOnly: true } }).catch(() => null),
       ]);
 
       if (statsRes?.data?.success && statsRes.data.data?.stats) {
@@ -270,6 +266,19 @@ export default function AdminDashboardPage() {
       }
       if (activityRes?.data?.success && activityRes.data.data?.activities) {
         setActivityFeed(activityRes.data.data.activities);
+      }
+
+      if (lowStockRes?.data?.success && Array.isArray(lowStockRes.data.data?.items)) {
+        const mapped: LowStockItem[] = lowStockRes.data.data.items.map((it: any) => ({
+          id: it.id,
+          name: it.name,
+          unit: it.unit || "units",
+          currentQty: it.currentStock ?? 0,
+          reorderLevel: it.reorderThreshold ?? 0,
+        }));
+        setLowStockItems(mapped);
+      } else {
+        setLowStockItems([]);
       }
     } catch (err: any) {
       console.error("Failed to load admin dashboard data:", err);
