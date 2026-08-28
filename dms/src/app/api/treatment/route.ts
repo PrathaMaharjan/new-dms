@@ -11,7 +11,6 @@ const STATUS_BY_CODE: Record<TreatmentErrorCode, number> = {
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
-  console.log(body)
   const result = await createTreatment(body);
 
   if (!result.success) {

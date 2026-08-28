@@ -1,13 +1,12 @@
 import { z } from "zod";
 
 export const addLedgerEntrySchema = z.object({
-  patientId: z.string().uuid(),
-  locationId: z.string().uuid(),
-  appointmentId: z.string().uuid().optional(),
-  treatmentId: z.string().uuid().optional(), // ADDED
+  patientId: z.string().uuid("Missing patient"),
+  locationId: z.string().uuid("Missing location"),
   type: z.enum(["charge", "payment", "adjustment"]),
-  amountCents: z.number().int().positive(),
+  amountCents: z.number().int().positive("Amount must be greater than 0"),
   paymentMethod: z.enum(["cash", "card", "online"]).optional(),
+  appointmentId: z.string().uuid().optional(),
   note: z.string().optional(),
 });
 

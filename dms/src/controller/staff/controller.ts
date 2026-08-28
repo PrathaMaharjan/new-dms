@@ -25,7 +25,14 @@ async function findOwnedStaff(staffId: string, orgId: string) {
 export type CreateStaffResult =
   | {
       success: true;
-      staff: { id: string; name: string; email: string; role: string; photoUrl: string | null };
+      staff: {
+        id: string;
+        name: string;
+        email: string;
+        role: string;
+        photoUrl: string | null;
+        locationId: string; // ADDED
+      };
       emailSent: boolean;
     }
   | { success: false; error: string; code: StaffErrorCode };
@@ -70,7 +77,6 @@ export async function createStaff(input: unknown): Promise<CreateStaffResult> {
           joinDate: data.joinDate,
           gender: data.gender,
           address: data.address,
-          // notes: data.notes,
           isActive: data.isActive ?? true,
         })
         .returning();
@@ -84,8 +90,6 @@ export async function createStaff(input: unknown): Promise<CreateStaffResult> {
       return user;
     });
 
-    // Same "don't fail the whole creation over a flaky email" reasoning
-    // as createDoctor - the account is already real and usable either way.
     let emailSent = true;
     try {
       const roleLabel = data.role === "front_office" ? "Front Desk" : data.role === "manager" ? "Manager" : "Clinical";
@@ -103,6 +107,7 @@ export async function createStaff(input: unknown): Promise<CreateStaffResult> {
         email: createdUser.email,
         role: data.role,
         photoUrl: imagePresets.thumbnail(data.photoKey ?? null),
+        locationId: data.locationId, // ADDED
       },
       emailSent,
     };
@@ -228,9 +233,7 @@ export type UpdateStaffResult =
     const userUpdates: Record<string, unknown> = {};
     if (data.name !== undefined) userUpdates.name = data.name;
     if (data.email !== undefined) userUpdates.email = data.email;
-    if (data.phone !== undefined) {
-      userUpdates.phone = data.phone?.trim() ? data.phone.trim() : null;
-    }
+    if (data.phone !== undefined) userUpdates.phone = data.phone;
     if (data.photoKey !== undefined) userUpdates.photoUrl = data.photoKey;
     if (data.shift !== undefined) userUpdates.shift = data.shift;
     if (data.joinDate !== undefined) userUpdates.joinDate = data.joinDate;
@@ -272,20 +275,7 @@ export type UpdateStaffResult =
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     if (getPgErrorCode(err) === "23505") {
-      const constraint =
-        (err as { cause?: { constraint?: string } })?.cause?.constraint ?? "";
-      if (constraint.includes("phone")) {
-        return {
-          success: false,
-          error: "A staff member with this phone number already exists.",
-          code: "DUPLICATE",
-        };
-      }
-      return {
-        success: false,
-        error: "A staff member with this email already exists.",
-        code: "DUPLICATE",
-      };
+      return { success: false, error: "A staff member with this email already exists.", code: "DUPLICATE" };
     }
     console.error(err);
     return { success: false, error: "Something went wrong updating the staff member.", code: "SERVER_ERROR" };

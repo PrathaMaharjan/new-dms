@@ -22,8 +22,10 @@ async function recordDoctorCommission(
   const appointment = await tx.query.appointments.findFirst({
     where: eq(appointments.id, charge.appointmentId),
   });
-  console.log("app",appointment)
-  if (!appointment) return;
+  if (!appointment) {
+    console.log(`[commission] SKIPPED - appointment ${charge.appointmentId} not found for charge ${charge.id}`);
+    return;
+  }
 
   const doctorProfile = await tx.query.providerProfiles.findFirst({
     where: eq(providerProfiles.userId, appointment.providerId),
@@ -39,7 +41,12 @@ async function recordDoctorCommission(
       ),
     ),
   });
-  if (!tier) return; // no matching tier configured - earns nothing, not an error
+  if (!tier) {
+    console.log(
+      `[commission] SKIPPED - no matching experience tier for doctor ${appointment.providerId} (${years} years). Charge ${charge.id}, appointment ${appointment.id}.`
+    );
+    return;
+  }
 
   const rate = await tx.query.treatmentCommissionRates.findFirst({
     where: and(
@@ -47,12 +54,16 @@ async function recordDoctorCommission(
       eq(treatmentCommissionRates.tierId, tier.id),
     ),
   });
-  if (!rate) return; // no rate configured for this treatment+tier combination
+  if (!rate) {
+    console.log(
+      `[commission] SKIPPED - no rate configured for treatment ${appointment.treatmentId} + tier ${tier.id} ("${tier.name}"). Charge ${charge.id}, appointment ${appointment.id}.`
+    );
+    return;
+  }
 
   const commissionAmountCents = Math.round(
     (charge.amountCents * rate.commissionPercent) / 100,
   );
-  console.log("hi")
 
   await tx.insert(doctorCommissions).values({
     doctorId: appointment.providerId,
@@ -64,6 +75,10 @@ async function recordDoctorCommission(
     chargeAmountCents: charge.amountCents,
     commissionAmountCents,
   });
+
+  console.log(
+    `[commission] RECORDED - doctor ${appointment.providerId} earned ${commissionAmountCents} cents (${rate.commissionPercent}%) on charge ${charge.id}.`
+  );
 }
 
 async function reconcilePatientCharges(tx: Transaction, patientId: string) {
@@ -82,23 +97,20 @@ async function reconcilePatientCharges(tx: Transaction, patientId: string) {
   for (const charge of charges) {
     const newStatus = remainingCredit >= charge.amountCents ? "settled" : "due";
 
-    if (
-      newStatus === "settled" &&
-      charge.status !== "settled" &&
-      charge.appointmentId
-    ) {
-      await recordDoctorCommission(tx, {
-        id: charge.id,
-        appointmentId: charge.appointmentId,
-        amountCents: charge.amountCents,
-      });
+    if (newStatus === "settled" && charge.status !== "settled") {
+      if (charge.appointmentId) {
+        await recordDoctorCommission(tx, {
+          id: charge.id,
+          appointmentId: charge.appointmentId,
+          amountCents: charge.amountCents,
+        });
+      } else {
+        console.log(`[commission] SKIPPED - charge ${charge.id} settled with no appointmentId attached.`);
+      }
     }
 
     if (newStatus === "settled") remainingCredit -= charge.amountCents;
-    await tx
-      .update(ledgerEntries)
-      .set({ status: newStatus })
-      .where(eq(ledgerEntries.id, charge.id));
+    await tx.update(ledgerEntries).set({ status: newStatus }).where(eq(ledgerEntries.id, charge.id));
   }
 }
 
