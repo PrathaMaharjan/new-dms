@@ -11,7 +11,7 @@ import {
 } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { addLedgerEntrySchema } from "@/lib/validators/billing";
-import { and, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -178,17 +178,11 @@ export async function addLedgerEntry(
           type: data.type,
           amountCents: signedAmount,
           paymentMethod: data.type === "payment" ? data.paymentMethod : null,
-          // Payments/adjustments are always settled immediately - only
-          // a fresh charge genuinely starts as due. Reconciliation below
-          // may then flip THIS row too, if existing unallocated credit
-          // already covers it.
+       
           status: data.type === "charge" ? "due" : "settled",
         })
         .returning();
 
-      // Re-run allocation across ALL this patient's charges - a new
-      // charge might immediately settle if old credit was sitting
-      // unused; a new payment might settle one or more old charges.
       await reconcilePatientCharges(tx, data.patientId);
 
       return entry.id;
@@ -399,10 +393,12 @@ export type BillingPatientRow = {
   patientName: string;
   patientPhone: string | null;
   lastActivity: Date | null;
+  lastTreatmentName: string | null;
+  lastTreatmentCostCents: number | null; // ADDED - the price of that same treatment
   chargedCents: number;
   paidCents: number;
   balanceCents: number;
-  status: "due" | "settled"; // derived from balanceCents, same rule as every other badge in this project
+  status: "due" | "settled";
 };
 
 export type BillingPatientsResult =
@@ -423,57 +419,65 @@ export async function getBillingPatients(
     balanceFilter?: "all" | "due" | "settled";
     limit?: number;
     offset?: number;
-  },
+  }
 ): Promise<BillingPatientsResult> {
   try {
     const session = await requireSession();
-
-    const limit = Math.min(
-      Math.max(options?.limit ?? DEFAULT_LIMIT, 1),
-      MAX_LIMIT,
-    );
+    const limit = Math.min(Math.max(options?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const offset = Math.max(options?.offset ?? 0, 0);
-
-    const conditions = [
+     const conditions = [
       eq(patients.orgId, session.orgId),
       or(eq(patients.locationId, locationId), isNull(patients.locationId)),
       isNull(patients.deletedAt),
     ];
     if (options?.search) {
       conditions.push(
-        sql`(${patients.firstName} || ' ' || ${patients.lastName} ilike ${"%" + options.search + "%"} or ${patients.phone} ilike ${"%" + options.search + "%"})`,
+        sql`(${patients.firstName} || ' ' || ${patients.lastName} ilike ${"%" + options.search + "%"} or ${patients.phone} ilike ${"%" + options.search + "%"})`
       );
     }
-
-    const rows = await db
+        const rows = await db
       .select({
         patientId: patients.id,
         patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
         patientPhone: patients.phone,
+        
         lastActivity: sql<Date | null>`max(${ledgerEntries.createdAt})`,
         chargedCents: sql<number>`coalesce(sum(${ledgerEntries.amountCents}) filter (where ${ledgerEntries.type} = 'charge'), 0)::int`,
         paidCents: sql<number>`abs(coalesce(sum(${ledgerEntries.amountCents}) filter (where ${ledgerEntries.type} = 'payment'), 0))::int`,
         balanceCents: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int`,
       })
       .from(patients)
+      
       .leftJoin(ledgerEntries, eq(ledgerEntries.patientId, patients.id))
       .where(and(...conditions))
-      .groupBy(
-        patients.id,
-        patients.firstName,
-        patients.lastName,
-        patients.phone,
-      );
-
-    // status is derived here, in application code, from the balance
-    // already computed above - same rule used everywhere else in this
-    // project (balanceCents > 0 ? "due" : "settled"), not a new column.
-    const withStatus = rows.map((r) => ({
-      ...r,
-      status: (r.balanceCents > 0 ? "due" : "settled") as "due" | "settled",
-    }));
-
-    let filtered = withStatus;
+      .groupBy(patients.id, patients.firstName, patients.lastName, patients.phone);
+          const patientIds = rows.map((r) => r.patientId);
+    const lastTreatmentRows = patientIds.length
+      ? await db
+          .selectDistinctOn([ledgerEntries.patientId], {
+            patientId: ledgerEntries.patientId,
+            treatmentName: treatments.name,
+            treatmentCostCents: treatments.priceCents,
+          })
+          .from(ledgerEntries)
+          .innerJoin(appointments, eq(ledgerEntries.appointmentId, appointments.id))
+          .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+          .where(and(inArray(ledgerEntries.patientId, patientIds), eq(ledgerEntries.type, "charge")))
+          .orderBy(ledgerEntries.patientId, desc(ledgerEntries.createdAt))
+      : [];
+        const treatmentByPatient = new Map(
+      lastTreatmentRows.map((r) => [r.patientId, { name: r.treatmentName, costCents: r.treatmentCostCents }])
+    );
+       const withStatus = rows.map((r) => {
+      const treatmentInfo = treatmentByPatient.get(r.patientId);
+      return {
+        ...r,
+        lastTreatmentName: treatmentInfo?.name ?? null,
+        lastTreatmentCostCents: treatmentInfo?.costCents ?? null,
+        status: (r.balanceCents > 0 ? "due" : "settled") as "due" | "settled",
+      };
+    });
+      let filtered = withStatus;
     if (options?.balanceFilter === "due") {
       filtered = withStatus.filter((p) => p.status === "due");
     } else if (options?.balanceFilter === "settled") {
@@ -483,7 +487,7 @@ export async function getBillingPatients(
     const total = filtered.length;
     const paged = filtered.slice(offset, offset + limit);
 
-    return {
+      return {
       success: true,
       patients: paged,
       pagination: { total, limit, offset },

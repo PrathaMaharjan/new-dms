@@ -11,30 +11,23 @@ import {
   TrendingUp,
   TrendingDown,
   Syringe,
-  HeartPulse,
-  Cross,
-  Pill,
-  Activity,
-  Filter,
-  ChevronLeft,
-  ChevronRight,
-  SquarePen,
-  IdCard,
   Clock,
   Layers,
-  Sparkles,
   ShieldCheck,
-  Scissors,
   Banknote,
   Timer,
   ClipboardList,
   ListChecks,
   Tag,
   Trash2,
-  ImagePlus,
   X,
   UploadCloud,
   ImageIcon,
+  ChevronLeft,
+  ChevronRight,
+  SquarePen,
+  IdCard,
+  Filter,
 } from "lucide-react";
 import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
 
@@ -66,6 +59,7 @@ type Treatment = {
   procedureSteps?: string[];
   aftercare?: string[];
   imageUrl?: string;
+  locationId?: string;
 };
 
 const EMPTY_FORM = {
@@ -81,7 +75,6 @@ const EMPTY_FORM = {
   aftercare: "",
   imageUrl: "",
 };
-
 
 type FormState = typeof EMPTY_FORM;
 
@@ -114,7 +107,7 @@ function linesToArray(value: string): string[] {
     .filter(Boolean);
 }
 
-export default function TreatmentsPage() {
+export default function AdminTreatmentsPage() {
   const params = useParams();
   const tenantSlug = typeof params?.tenantSlug === "string" ? params.tenantSlug : "";
   const storageKey = tenantSlug ? `dms_${tenantSlug}_custom_treatment_categories` : "dms_custom_treatment_categories";
@@ -164,7 +157,6 @@ export default function TreatmentsPage() {
     setNewCategoryInput("");
   };
 
-
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 8;
   const [modalOpen, setModalOpen] = useState(false);
@@ -172,23 +164,30 @@ export default function TreatmentsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [selectedTreatment, setSelectedTreatment] = useState<Treatment | null>(null);
-  const [profileTab, setProfileTab] = useState<"detail" | "procedure" | "aftercare">(
-    "detail"
-  );
+  const [profileTab, setProfileTab] = useState<"detail" | "procedure" | "aftercare">("detail");
   const [todayBookingsCount, setTodayBookingsCount] = useState<number>(0);
 
   async function loadData() {
     try {
       setLoading(true);
-      // Fetch locations/services first to get locationId
-      const servicesRes = await axios.get("/api/services");
-      let locId: string | null = null;
-      if (servicesRes.data?.success && servicesRes.data.data.services?.length > 0) {
-        locId = servicesRes.data.data.services[0].locationId;
-        setLocationId(locId);
+
+      // Resolve the outlet location assigned to this admin/manager
+      let locId = locationId;
+      if (!locId) {
+        const outletsRes = await axios.get("/api/outlets").catch(() => null);
+        if (outletsRes?.data?.success && Array.isArray(outletsRes.data.data?.locations) && outletsRes.data.data.locations.length > 0) {
+          locId = outletsRes.data.data.locations[0].id;
+          setLocationId(locId);
+        } else {
+          const servicesRes = await axios.get("/api/services").catch(() => null);
+          if (servicesRes?.data?.success && servicesRes.data.data?.services?.length > 0) {
+            locId = servicesRes.data.data.services[0].locationId;
+            setLocationId(locId);
+          }
+        }
       }
 
-      // Fetch treatments and appointments for location
+      // Fetch treatments and appointments for this outlet
       const [treatmentsRes, apptsRes] = await Promise.all([
         axios.get("/api/treatment", { params: locId ? { locationId: locId } : undefined }),
         axios.get("/api/appoments", { params: locId ? { locationId: locId } : undefined }).catch(() => null),
@@ -217,6 +216,7 @@ export default function TreatmentsPage() {
           }
           return {
             id: t.id,
+            locationId: t.locationId,
             name: t.name,
             category: catName,
             duration: `${t.durationMinutes} mins`,
@@ -225,7 +225,7 @@ export default function TreatmentsPage() {
             treatmentId: `TRT-${1000 + index + 1}`,
             sessions: String(t.sessions || 1),
             recoveryTime: t.recoveryTime || "",
-            anesthesia: t.anesthesia ? (t.anesthesia.charAt(0).toUpperCase() + t.anesthesia.slice(1)) : "None",
+            anesthesia: t.anesthesia ? t.anesthesia.charAt(0).toUpperCase() + t.anesthesia.slice(1) : "None",
             imageUrl: t.imageUrl || undefined,
             procedureSteps: t.procedureSteps || [],
             aftercare: t.aftercareInstructions || [],
@@ -305,7 +305,6 @@ export default function TreatmentsPage() {
     });
   }, [treatments, query, categoryFilter]);
 
-
   const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const startIndex = (currentPage - 1) * itemsPerPage;
   const paginatedTreatments = filtered.slice(startIndex, startIndex + itemsPerPage);
@@ -327,6 +326,15 @@ export default function TreatmentsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    let resolvedLocationId = locationId;
+    if (!resolvedLocationId && modalMode === "add") {
+      const outletsRes = await axios.get("/api/outlets").catch(() => null);
+      if (outletsRes?.data?.success && Array.isArray(outletsRes.data.data?.locations) && outletsRes.data.data.locations.length > 0) {
+        resolvedLocationId = outletsRes.data.data.locations[0].id;
+        setLocationId(resolvedLocationId);
+      }
+    }
 
     let uploadedPhotoKey: string | undefined = undefined;
     if (imageFile) {
@@ -388,25 +396,29 @@ export default function TreatmentsPage() {
           const displayCat =
             CATEGORIES.find((c) => c.toLowerCase() === (updatedTreatment.category || "").toLowerCase()) ||
             updatedTreatment.category;
-          const newImgUrl = updatedTreatment.imageUrl || (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : form.imageUrl);
+          const newImgUrl =
+            updatedTreatment.imageUrl ||
+            (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : form.imageUrl);
 
           setTreatments((prev) =>
             prev.map((t) =>
               t.id === editingId
                 ? {
-                  ...t,
-                  name: updatedTreatment.name,
-                  category: displayCat,
-                  duration: `${updatedTreatment.durationMinutes} mins`,
-                  price: updatedTreatment.priceCents / 100,
-                  description: updatedTreatment.description || "",
-                  sessions: String(updatedTreatment.sessions || 1),
-                  recoveryTime: updatedTreatment.recoveryTime || "",
-                  anesthesia: updatedTreatment.anesthesia ? (updatedTreatment.anesthesia.charAt(0).toUpperCase() + updatedTreatment.anesthesia.slice(1)) : "None",
-                  imageUrl: newImgUrl || undefined,
-                  procedureSteps: updatedTreatment.procedureSteps || [],
-                  aftercare: updatedTreatment.aftercareInstructions || [],
-                }
+                    ...t,
+                    name: updatedTreatment.name,
+                    category: displayCat,
+                    duration: `${updatedTreatment.durationMinutes} mins`,
+                    price: updatedTreatment.priceCents / 100,
+                    description: updatedTreatment.description || "",
+                    sessions: String(updatedTreatment.sessions || 1),
+                    recoveryTime: updatedTreatment.recoveryTime || "",
+                    anesthesia: updatedTreatment.anesthesia
+                      ? updatedTreatment.anesthesia.charAt(0).toUpperCase() + updatedTreatment.anesthesia.slice(1)
+                      : "None",
+                    imageUrl: newImgUrl || undefined,
+                    procedureSteps: updatedTreatment.procedureSteps || [],
+                    aftercare: updatedTreatment.aftercareInstructions || [],
+                  }
                 : t
             )
           );
@@ -414,30 +426,32 @@ export default function TreatmentsPage() {
           setSelectedTreatment((prev) =>
             prev && prev.id === editingId
               ? {
-                ...prev,
-                name: updatedTreatment.name,
-                category: displayCat,
-                duration: `${updatedTreatment.durationMinutes} mins`,
-                price: updatedTreatment.priceCents / 100,
-                description: updatedTreatment.description || "",
-                sessions: String(updatedTreatment.sessions || 1),
-                recoveryTime: updatedTreatment.recoveryTime || "",
-                anesthesia: updatedTreatment.anesthesia ? (updatedTreatment.anesthesia.charAt(0).toUpperCase() + updatedTreatment.anesthesia.slice(1)) : "None",
-                imageUrl: newImgUrl || undefined,
-                procedureSteps: updatedTreatment.procedureSteps || [],
-                aftercare: updatedTreatment.aftercareInstructions || [],
-              }
+                  ...prev,
+                  name: updatedTreatment.name,
+                  category: displayCat,
+                  duration: `${updatedTreatment.durationMinutes} mins`,
+                  price: updatedTreatment.priceCents / 100,
+                  description: updatedTreatment.description || "",
+                  sessions: String(updatedTreatment.sessions || 1),
+                  recoveryTime: updatedTreatment.recoveryTime || "",
+                  anesthesia: updatedTreatment.anesthesia
+                    ? updatedTreatment.anesthesia.charAt(0).toUpperCase() + updatedTreatment.anesthesia.slice(1)
+                    : "None",
+                  imageUrl: newImgUrl || undefined,
+                  procedureSteps: updatedTreatment.procedureSteps || [],
+                  aftercare: updatedTreatment.aftercareInstructions || [],
+                }
               : prev
           );
         }
       } else {
-        if (!locationId) {
-          alert("Could not determine location ID. Please configure services first.");
+        if (!resolvedLocationId) {
+          alert("Could not determine your outlet ID. Please make sure your account is assigned to an outlet.");
           return;
         }
 
         const payload: Record<string, unknown> = {
-          locationId,
+          locationId: resolvedLocationId,
           name: form.name,
           category: form.category.trim(),
           durationMinutes: durationVal,
@@ -463,11 +477,14 @@ export default function TreatmentsPage() {
           const displayCat =
             CATEGORIES.find((c) => c.toLowerCase() === (newTreatment.category || "").toLowerCase()) ||
             newTreatment.category;
-          const newImgUrl = newTreatment.imageUrl || (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : undefined);
+          const newImgUrl =
+            newTreatment.imageUrl ||
+            (uploadedPhotoKey ? getImageUrl(uploadedPhotoKey, { width: 400, height: 300 }) : undefined);
 
           setTreatments((prev) => [
             {
               id: newTreatment.id,
+              locationId: newTreatment.locationId,
               treatmentId: `TRT-${1000 + prev.length + 1}`,
               createdDate: new Date(newTreatment.createdAt).toISOString().slice(0, 16).replace("T", " "),
               name: newTreatment.name,
@@ -477,7 +494,9 @@ export default function TreatmentsPage() {
               description: newTreatment.description || "",
               sessions: String(newTreatment.sessions || 1),
               recoveryTime: newTreatment.recoveryTime || "",
-              anesthesia: newTreatment.anesthesia ? (newTreatment.anesthesia.charAt(0).toUpperCase() + newTreatment.anesthesia.slice(1)) : "None",
+              anesthesia: newTreatment.anesthesia
+                ? newTreatment.anesthesia.charAt(0).toUpperCase() + newTreatment.anesthesia.slice(1)
+                : "None",
               imageUrl: newImgUrl || undefined,
               procedureSteps: newTreatment.procedureSteps || [],
               aftercare: newTreatment.aftercareInstructions || [],
@@ -528,12 +547,7 @@ export default function TreatmentsPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-slate-50">
-
-
-
-
       <div className="sticky top-0 z-20 w-full bg-white px-6 py-6 lg:px-10">
-
         <h1 className="mt-1 text-2xl font-semibold tracking-tight text-[#345263] sm:text-3xl">
           Treatments
         </h1>
@@ -542,34 +556,23 @@ export default function TreatmentsPage() {
       <div className="relative mx-auto max-w-[1600px] px-6 pb-10 pt-6 lg:px-10">
         {/* Stats */}
         <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
-          {stats.map((stat) => {
-            const TrendIcon = stat.trendUp ? TrendingUp : TrendingDown;
-            return (
-              <div
-                key={stat.label}
-                className="rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm"
-              >
-                <div className="flex items-start justify-between">
-                  <p className="text-[0.85rem] font-medium text-slate-500">{stat.label}</p>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#7da3b3]/15 text-[#3f6274]">
-                    <stat.icon className="h-4 w-4" strokeWidth={2} />
-                  </div>
+          {stats.map((stat) => (
+            <div key={stat.label} className="rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm">
+              <div className="flex items-start justify-between">
+                <p className="text-[0.85rem] font-medium text-slate-500">{stat.label}</p>
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#7da3b3]/15 text-[#3f6274]">
+                  <stat.icon className="h-4 w-4" strokeWidth={2} />
                 </div>
-
-                <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">
-                  {stat.value}
-                </p>
-
-
               </div>
-            );
-          })}
+              <p className="mt-4 text-3xl font-semibold tracking-tight text-slate-900">{stat.value}</p>
+            </div>
+          ))}
         </div>
-
 
         <div className="mt-10 rounded-2xl border border-slate-900/5 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-3">
+              {/* Search */}
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" strokeWidth={2} />
                 <input
@@ -583,6 +586,7 @@ export default function TreatmentsPage() {
                 />
               </div>
 
+              {/* Category Filter */}
               <div className="relative">
                 <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" strokeWidth={2} />
                 <select
@@ -652,7 +656,7 @@ export default function TreatmentsPage() {
                                 <img
                                   src={t.imageUrl}
                                   alt={t.name}
-                                  className="h-10 w-10 shrink-0 rounded-xl object-cover border border-slate-200"
+                                  className="h-10 w-10 shrink-0 rounded-xl border border-slate-200 object-cover"
                                 />
                               ) : (
                                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7da3b3]/10 text-[#3f6274]">
@@ -663,21 +667,19 @@ export default function TreatmentsPage() {
                             </div>
                           </td>
                           <td className="px-5 py-4">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-1 text-[0.75rem] font-medium ${color}`}
-                            >
+                            <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[0.75rem] font-medium ${color}`}>
                               {t.category}
                             </span>
                           </td>
                           <td className="px-5 py-4 text-[0.85rem] text-slate-600">
                             <p className="flex items-center gap-1.5">
-                              <Clock className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                              <Clock className="h-3.5 w-3.5" strokeWidth={2} />
                               {t.duration}
                             </p>
                           </td>
                           <td className="px-5 py-4 text-[0.85rem] text-slate-700">
                             <p className="flex items-center gap-1">
-                              <Banknote className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                              <Banknote className="h-3.5 w-3.5" strokeWidth={2} />
                               NPR {t.price.toLocaleString()}
                             </p>
                           </td>
@@ -729,10 +731,8 @@ export default function TreatmentsPage() {
           {/* Pagination Controls */}
           {!loading && filtered.length > 0 && (
             <div className="mt-4 flex items-center justify-between border-t border-slate-100 px-1 pt-4 text-xs">
-              <span className="text-[0.7rem] text-slate-500 font-medium">
-                Showing{" "}
-                <strong className="text-slate-800">{startIndex + 1}</strong>{" "}
-                to{" "}
+              <span className="text-[0.7rem] font-medium text-slate-500">
+                Showing <strong className="text-slate-800">{startIndex + 1}</strong> to{" "}
                 <strong className="text-slate-800">
                   {Math.min(startIndex + itemsPerPage, filtered.length)}
                 </strong>{" "}
@@ -743,7 +743,7 @@ export default function TreatmentsPage() {
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </button>
@@ -752,10 +752,11 @@ export default function TreatmentsPage() {
                   <button
                     key={pageNum}
                     onClick={() => handlePageChange(pageNum)}
-                    className={`h-7 w-7 rounded-md text-xs font-semibold transition-colors ${currentPage === pageNum
-                      ? "bg-[#7da3b3] text-white shadow-sm"
-                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-                      }`}
+                    className={`h-7 w-7 rounded-md text-xs font-semibold transition-colors ${
+                      currentPage === pageNum
+                        ? "bg-[#7da3b3] text-white shadow-sm"
+                        : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                    }`}
                   >
                     {pageNum}
                   </button>
@@ -764,7 +765,7 @@ export default function TreatmentsPage() {
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 transition-colors"
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 shadow-sm transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
@@ -774,14 +775,10 @@ export default function TreatmentsPage() {
         </div>
       </div>
 
-
+      {/* Add/Edit Modal */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40">
-          <div
-            onClick={() => setModalOpen(false)}
-            className="absolute inset-0"
-            aria-hidden
-          />
+          <div onClick={() => setModalOpen(false)} className="absolute inset-0" aria-hidden />
           <div className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto bg-slate-50 shadow-2xl">
             {/* Top bar */}
             <div className="flex items-center justify-between border-b border-slate-900/5 bg-slate-50 px-6 py-4">
@@ -799,7 +796,6 @@ export default function TreatmentsPage() {
 
             <div className="px-6 py-6">
               <form onSubmit={handleSubmit} className="space-y-4">
-
                 {/* Treatment Picture Upload */}
                 <div>
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
@@ -1074,7 +1070,7 @@ export default function TreatmentsPage() {
                 <div className="flex items-center gap-3 pt-2">
                   <button
                     type="submit"
-                    className="rounded-full bg-[#7da3b3] px-6 py-2.5 text-[0.9rem] font-medium text-white transition-colors  hover:bg-[#345263]"
+                    className="rounded-full bg-[#7da3b3] px-6 py-2.5 text-[0.9rem] font-medium text-white transition-colors hover:bg-[#345263]"
                   >
                     {modalMode === "edit" ? "Save Changes" : "Add Treatment"}
                   </button>
@@ -1095,11 +1091,7 @@ export default function TreatmentsPage() {
       {/* Treatment detail side panel */}
       {selectedTreatment && (
         <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40">
-          <div
-            onClick={() => setSelectedTreatment(null)}
-            className="absolute inset-0"
-            aria-hidden
-          />
+          <div onClick={() => setSelectedTreatment(null)} className="absolute inset-0" aria-hidden />
           <div className="relative flex h-full w-full max-w-xl flex-col overflow-y-auto bg-slate-50 shadow-2xl">
             {/* Top bar */}
             <div className="flex items-center justify-between border-b border-slate-900/5 bg-slate-50 px-6 py-4">
@@ -1125,7 +1117,7 @@ export default function TreatmentsPage() {
               {/* Identity */}
               <div>
                 {selectedTreatment.imageUrl && (
-                  <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm max-h-56">
+                  <div className="mb-4 max-h-56 overflow-hidden rounded-2xl border border-slate-200 bg-slate-100 shadow-sm">
                     <img
                       src={selectedTreatment.imageUrl}
                       alt={selectedTreatment.name}
@@ -1133,9 +1125,7 @@ export default function TreatmentsPage() {
                     />
                   </div>
                 )}
-                <h2 className="text-xl font-semibold text-slate-900">
-                  {selectedTreatment.name}
-                </h2>
+                <h2 className="text-xl font-semibold text-slate-900">{selectedTreatment.name}</h2>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[0.85rem] text-slate-500">
                   <span>{selectedTreatment.category}</span>
                   <span className="text-slate-300">|</span>
@@ -1163,10 +1153,11 @@ export default function TreatmentsPage() {
                   <button
                     key={tab.key}
                     onClick={() => setProfileTab(tab.key)}
-                    className={`-mb-px border-b-2 px-1 pb-3 text-[0.85rem] font-medium transition-colors ${profileTab === tab.key
-                      ? "border-[#3f6274] text-[#3f6274]"
-                      : "border-transparent text-slate-500 hover:text-slate-700"
-                      }`}
+                    className={`-mb-px border-b-2 px-1 pb-3 text-[0.85rem] font-medium transition-colors ${
+                      profileTab === tab.key
+                        ? "border-[#3f6274] text-[#3f6274]"
+                        : "border-transparent text-slate-500 hover:text-slate-700"
+                    }`}
                   >
                     {tab.label}
                   </button>
@@ -1234,17 +1225,14 @@ export default function TreatmentsPage() {
                   <p className="flex items-center gap-1.5 border-l-2 border-[#3f6274] pl-2 text-[0.9rem] font-semibold text-slate-900">
                     Procedure Steps
                   </p>
-                  {selectedTreatment.procedureSteps &&
-                    selectedTreatment.procedureSteps.length > 0 ? (
+                  {selectedTreatment.procedureSteps && selectedTreatment.procedureSteps.length > 0 ? (
                     <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[0.85rem] text-slate-600">
                       {selectedTreatment.procedureSteps.map((item) => (
                         <li key={item}>{item}</li>
                       ))}
                     </ol>
                   ) : (
-                    <p className="mt-3 text-[0.85rem] text-slate-500">
-                      No procedure steps recorded yet.
-                    </p>
+                    <p className="mt-3 text-[0.85rem] text-slate-500">No procedure steps recorded yet.</p>
                   )}
                 </div>
               )}
@@ -1261,9 +1249,7 @@ export default function TreatmentsPage() {
                       ))}
                     </ul>
                   ) : (
-                    <p className="mt-3 text-[0.85rem] text-slate-500">
-                      No aftercare instructions recorded yet.
-                    </p>
+                    <p className="mt-3 text-[0.85rem] text-slate-500">No aftercare instructions recorded yet.</p>
                   )}
                 </div>
               )}
@@ -1271,14 +1257,11 @@ export default function TreatmentsPage() {
           </div>
         </div>
       )}
+
       {/* Delete confirmation modal */}
       {deleteTarget && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 px-4">
-          <div
-            onClick={() => setDeleteTarget(null)}
-            className="absolute inset-0"
-            aria-hidden
-          />
+          <div onClick={() => setDeleteTarget(null)} className="absolute inset-0" aria-hidden />
           <div className="relative w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-rose-50 text-rose-500">
               <Trash2 className="h-5 w-5" strokeWidth={2} />

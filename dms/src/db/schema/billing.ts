@@ -11,6 +11,7 @@ import { relations } from "drizzle-orm";
 import { organizations, locations } from "./tenancy";
 import { patients } from "./patients";
 import { appointments } from "./scheduling";
+import { treatments } from "./treatment";
 
 export const ledgerEntryTypeEnum = pgEnum("ledger_entry_type", [
   "charge",
@@ -74,4 +75,5 @@ export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
     fields: [ledgerEntries.appointmentId],
     references: [appointments.id],
   }),
+
 }));

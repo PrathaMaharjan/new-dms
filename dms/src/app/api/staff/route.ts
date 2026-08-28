@@ -11,7 +11,9 @@ const STATUS_BY_CODE: Record<StaffErrorCode, number> = {
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
+  console.log(body)
   const result = await createStaff(body);
+  
 
   if (!result.success) {
     const status = STATUS_BY_CODE[result.code];

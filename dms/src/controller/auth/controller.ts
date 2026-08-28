@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { locations, organizations, refreshTokens, users } from "@/db/schema";
+import { locations, organizations, refreshTokens, userLocationRoles, users } from "@/db/schema";
 import { verifyPassword } from "@/lib/auth/hash";
 import { getRedirectPathForUser } from "@/lib/auth/role-redirect";
 import {
@@ -56,40 +56,50 @@ export async function loginController(input: unknown): Promise<LoginResult> {
     return { success: false, error: "Invalid email or password." };
   }
   if (org.status === "suspended" || org.status === "cancelled") {
-    return {
-      success: false,
-      error: "This clinic's account is not active. Contact support.",
-    };
+    return { success: false, error: "This clinic's account is not active. Contact support." };
   }
-  const location = await db.query.locations.findFirst({
-    where: eq(locations.orgId, org.id),
+
+  // CHANGED - resolves the location THIS USER is actually assigned to,
+  // via userLocationRoles, instead of blindly grabbing whatever location
+  // happens to sort first for the org. An owner (no row in
+  // userLocationRoles at all) falls back to their own defaultLocationId,
+  // matching the owner/manager split established earlier in this project.
+  let location = null;
+  const userLocationRole = await db.query.userLocationRoles.findFirst({
+    where: eq(userLocationRoles.userId, user.id),
+    with: { location: true },
   });
+
+  if (userLocationRole?.location) {
+    location = userLocationRole.location;
+  } else if (user.isOwner && user.id) {
+    location = await db.query.locations.findFirst({
+      where: eq(locations.id, user.id),
+    });
+  }
   if (!location) {
-    return {
-      success: false,
-      error: "No location configured for this organization.",
-    };
+    location = await db.query.locations.findFirst({
+      where: eq(locations.orgId, org.id),
+      orderBy: (locations, { asc }) => [asc(locations.createdAt)],
+    });
+  }
+
+  if (!location) {
+    return { success: false, error: "No location configured for this organization." };
   }
   if (user.deletedAt) {
     return { success: false, error: "This account is no longer active." };
   }
   if (!user.isActive) {
-    return {
-      success: false,
-      error: "This account has been deactivated. Contact your administrator.",
-    };
+    return { success: false, error: "This account has been deactivated. Contact your administrator." };
   }
 
   const accessToken = signAccessToken({ userId: user.id, orgId: user.orgId });
   const { token: refreshToken, tokenHash, expiresAt } = generateRefreshToken();
 
-  await db
-    .insert(refreshTokens)
-    .values({ userId: user.id, tokenHash, expiresAt });
+  await db.insert(refreshTokens).values({ userId: user.id, tokenHash, expiresAt });
 
   const redirectTo = await getRedirectPathForUser(user.id, org.slug);
-  console.log("redirect : ",redirectTo)
-  console.log("user : ",user)
 
   return {
     success: true,
@@ -105,7 +115,7 @@ export async function loginController(input: unknown): Promise<LoginResult> {
     org: {
       slug: org.slug,
       name: org.name,
-      locationId: location?.id,
+      locationId: location.id,
     },
     redirectTo,
   };
