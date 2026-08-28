@@ -25,6 +25,7 @@ import {
   Trash2,
   Droplet,
   Wallet,
+  Send,
 } from "lucide-react";
 
 const inputClass =
@@ -42,6 +43,7 @@ interface TreatmentRecord {
   doctor: string;
   notes: string;
   prescription?: string;
+  startTimeRaw?: string; // ISO timestamp, used to find the most recent appointment
 }
 
 interface Patient {
@@ -120,6 +122,9 @@ export default function PatientsTab() {
   const [historySearch, setHistorySearch] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
+
+  // Report emailing state: which patient + which report type is currently sending
+  const [sendingReport, setSendingReport] = useState<{ id: string; type: "visit" | "history" } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -415,6 +420,61 @@ export default function PatientsTab() {
     }
   }
 
+  function getMostRecentAppointmentId(patient: Patient): string | null {
+    if (!patient.history || patient.history.length === 0) return null;
+    const sorted = [...patient.history].sort((a, b) => {
+      const aTime = a.startTimeRaw ? new Date(a.startTimeRaw).getTime() : 0;
+      const bTime = b.startTimeRaw ? new Date(b.startTimeRaw).getTime() : 0;
+      return bTime - aTime;
+    });
+    return sorted[0]?.id ?? null;
+  }
+
+  async function handleSendReport(patient: Patient, type: "visit" | "history", e: React.MouseEvent) {
+    e.stopPropagation();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
+    if (!patient.email || patient.email === "-") {
+      setErrorMsg("This patient has no email on file.");
+      return;
+    }
+
+    let payload: Record<string, unknown> = {};
+    if (type === "visit") {
+      const appointmentId = getMostRecentAppointmentId(patient);
+      if (!appointmentId) {
+        setErrorMsg("No appointment found to send a visit report for.");
+        return;
+      }
+      payload = { appointmentId };
+    }
+
+    setSendingReport({ id: patient.id, type });
+    try {
+      const endpoint =
+        type === "visit"
+          ? `/api/patent/${patient.id}/send-visit-report`
+          : `/api/patent/${patient.id}/send-history-report`;
+
+      const res = await axios.post(endpoint, payload);
+      if (res.data?.success !== false) {
+        setSuccessMsg(
+          type === "visit"
+            ? `Recent visit report emailed to ${patient.email}.`
+            : `Full history report emailed to ${patient.email}.`
+        );
+      } else {
+        setErrorMsg(res.data?.error || "Failed to send report.");
+      }
+    } catch (err: any) {
+      console.error("Error sending report:", err);
+      setErrorMsg(err.response?.data?.error || "Failed to send report.");
+    } finally {
+      setSendingReport(null);
+    }
+  }
+
   function cancelDeletePatient(e: React.MouseEvent) {
     e.stopPropagation();
     setDeleteConfirmId(null);
@@ -464,6 +524,7 @@ export default function PatientsTab() {
               doctor: a.providerName || "Unassigned",
               notes: a.noteText || `Status: ${a.status || "Completed"}`,
               prescription: a.prescription || a.prescriptionText || undefined,
+              startTimeRaw: a.startTime || undefined,
             };
           });
         }
@@ -1054,6 +1115,50 @@ export default function PatientsTab() {
 
                         {isExpanded && (
                           <div className="bg-slate-50/80 p-6 border-t border-b border-sky-100/60 shadow-inner space-y-4">
+                            {/* Email Reports */}
+                            <div
+                              className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-sm"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center gap-1.5 text-xs text-slate-500">
+                                <Mail className="h-3.5 w-3.5 text-slate-400" />
+                                <span>
+                                  Email report to{" "}
+                                  <span className="font-semibold text-slate-700">{patient.email}</span>
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={(e) => handleSendReport(patient, "visit", e)}
+                                  disabled={
+                                    sendingReport?.id === patient.id && sendingReport.type === "visit"
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 hover:bg-sky-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {sendingReport?.id === patient.id && sendingReport.type === "visit" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <Send className="h-3.5 w-3.5" />
+                                  )}
+                                  Send Recent Report
+                                </button>
+                                <button
+                                  onClick={(e) => handleSendReport(patient, "history", e)}
+                                  disabled={
+                                    sendingReport?.id === patient.id && sendingReport.type === "history"
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  {sendingReport?.id === patient.id && sendingReport.type === "history" ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <FileText className="h-3.5 w-3.5" />
+                                  )}
+                                  Send Full History Report
+                                </button>
+                              </div>
+                            </div>
+
                             {/* Medical Summary Cards */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
                               <div className="rounded-xl bg-amber-50/60 border border-amber-200/60 p-3 space-y-1">

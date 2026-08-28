@@ -11,7 +11,7 @@ import {
 } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { addLedgerEntrySchema } from "@/lib/validators/billing";
-import { and, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -22,6 +22,7 @@ async function recordDoctorCommission(
   const appointment = await tx.query.appointments.findFirst({
     where: eq(appointments.id, charge.appointmentId),
   });
+  console.log("app",appointment)
   if (!appointment) return;
 
   const doctorProfile = await tx.query.providerProfiles.findFirst({
@@ -51,6 +52,7 @@ async function recordDoctorCommission(
   const commissionAmountCents = Math.round(
     (charge.amountCents * rate.commissionPercent) / 100,
   );
+  console.log("hi")
 
   await tx.insert(doctorCommissions).values({
     doctorId: appointment.providerId,
@@ -80,15 +82,11 @@ async function reconcilePatientCharges(tx: Transaction, patientId: string) {
   for (const charge of charges) {
     const newStatus = remainingCredit >= charge.amountCents ? "settled" : "due";
 
-    // ADDED - only fires the exact moment a charge TRANSITIONS into
-    // settled, never re-fires for a charge that was already settled.
     if (
       newStatus === "settled" &&
       charge.status !== "settled" &&
       charge.appointmentId
     ) {
-      // FIX 2: Explicitly map the properties to guarantee exact type match
-      // and satisfy the non-null string requirement for appointmentId
       await recordDoctorCommission(tx, {
         id: charge.id,
         appointmentId: charge.appointmentId,
@@ -388,19 +386,19 @@ export async function getBillingStats(
 
 export type BillingPatientsErrorCode = "UNAUTHORIZED" | "SERVER_ERROR";
 
+
 export type BillingPatientRow = {
   patientId: string;
   patientName: string;
   patientPhone: string | null;
   lastActivity: Date | null;
   lastTreatmentName: string | null;
-  lastTreatmentCostCents: number | null; // ADDED - the price of that same treatment
+  lastTreatmentCostCents: number | null;
   chargedCents: number;
   paidCents: number;
   balanceCents: number;
   status: "due" | "settled";
 };
-
 export type BillingPatientsResult =
   | {
       success: true;
@@ -411,6 +409,9 @@ export type BillingPatientsResult =
 
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 100;
+
+
+// const MAX_LIMIT = 100;
 
 export async function getBillingPatients(
   locationId: string,
@@ -423,9 +424,11 @@ export async function getBillingPatients(
 ): Promise<BillingPatientsResult> {
   try {
     const session = await requireSession();
+
     const limit = Math.min(Math.max(options?.limit ?? DEFAULT_LIMIT, 1), MAX_LIMIT);
     const offset = Math.max(options?.offset ?? 0, 0);
-     const conditions = [
+
+    const conditions = [
       eq(patients.orgId, session.orgId),
       or(eq(patients.locationId, locationId), isNull(patients.locationId)),
       isNull(patients.deletedAt),
@@ -435,40 +438,50 @@ export async function getBillingPatients(
         sql`(${patients.firstName} || ' ' || ${patients.lastName} ilike ${"%" + options.search + "%"} or ${patients.phone} ilike ${"%" + options.search + "%"})`
       );
     }
-        const rows = await db
+
+    const rows = await db
       .select({
         patientId: patients.id,
         patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
         patientPhone: patients.phone,
-        
         lastActivity: sql<Date | null>`max(${ledgerEntries.createdAt})`,
         chargedCents: sql<number>`coalesce(sum(${ledgerEntries.amountCents}) filter (where ${ledgerEntries.type} = 'charge'), 0)::int`,
         paidCents: sql<number>`abs(coalesce(sum(${ledgerEntries.amountCents}) filter (where ${ledgerEntries.type} = 'payment'), 0))::int`,
         balanceCents: sql<number>`coalesce(sum(${ledgerEntries.amountCents}), 0)::int`,
       })
       .from(patients)
-      
       .leftJoin(ledgerEntries, eq(ledgerEntries.patientId, patients.id))
       .where(and(...conditions))
       .groupBy(patients.id, patients.firstName, patients.lastName, patients.phone);
-          const patientIds = rows.map((r) => r.patientId);
-    const lastTreatmentRows = patientIds.length
+
+    // CHANGED - completely bypasses ledger_entries.appointment_id (which
+    // we've confirmed is empty for these charges). Instead, goes
+    // directly from patient_id -> appointments -> treatments, picking
+    // each patient's MOST RECENT real appointment. Worth being precise:
+    // this is NOT "the treatment for this specific charge" - it's "this
+    // patient's latest scheduled visit," which may have no actual
+    // relationship to what they were billed for, since nothing links
+    // the two. Shown regardless of whether that appointment ever had a
+    // charge recorded against it at all.
+    const patientIds = rows.map((r) => r.patientId);
+    const lastAppointmentRows = patientIds.length
       ? await db
-          .selectDistinctOn([ledgerEntries.patientId], {
-            patientId: ledgerEntries.patientId,
+          .selectDistinctOn([appointments.patientId], {
+            patientId: appointments.patientId,
             treatmentName: treatments.name,
             treatmentCostCents: treatments.priceCents,
           })
-          .from(ledgerEntries)
-          .innerJoin(appointments, eq(ledgerEntries.appointmentId, appointments.id))
+          .from(appointments)
           .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
-          .where(and(inArray(ledgerEntries.patientId, patientIds), eq(ledgerEntries.type, "charge")))
-          .orderBy(ledgerEntries.patientId, desc(ledgerEntries.createdAt))
+          .where(and(inArray(appointments.patientId, patientIds), ne(appointments.status, "cancelled")))
+          .orderBy(appointments.patientId, desc(appointments.startTime))
       : [];
-        const treatmentByPatient = new Map(
-      lastTreatmentRows.map((r) => [r.patientId, { name: r.treatmentName, costCents: r.treatmentCostCents }])
+
+    const treatmentByPatient = new Map(
+      lastAppointmentRows.map((r) => [r.patientId, { name: r.treatmentName, costCents: r.treatmentCostCents }])
     );
-       const withStatus = rows.map((r) => {
+
+    const withStatus = rows.map((r) => {
       const treatmentInfo = treatmentByPatient.get(r.patientId);
       return {
         ...r,
@@ -477,7 +490,8 @@ export async function getBillingPatients(
         status: (r.balanceCents > 0 ? "due" : "settled") as "due" | "settled",
       };
     });
-      let filtered = withStatus;
+
+    let filtered = withStatus;
     if (options?.balanceFilter === "due") {
       filtered = withStatus.filter((p) => p.status === "due");
     } else if (options?.balanceFilter === "settled") {
@@ -487,7 +501,7 @@ export async function getBillingPatients(
     const total = filtered.length;
     const paged = filtered.slice(offset, offset + limit);
 
-      return {
+    return {
       success: true,
       patients: paged,
       pagination: { total, limit, offset },
