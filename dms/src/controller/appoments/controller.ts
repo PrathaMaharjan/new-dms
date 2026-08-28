@@ -1021,12 +1021,15 @@ export type GetAppointmentsResult =
     success: true;
     appointments: {
       id: string;
+      patientId: string;
       patientName: string;
       patientPhone: string | null;
       patientEmail: string | null;
       patientAge: number | null;
-      providerName: string;
-      treatmentName: string;
+      providerId: string | null;
+      providerName: string | null;
+      treatmentId: string | null;
+      treatmentName: string | null;
       startTime: Date;
       endTime: Date;
       status: string;
@@ -1098,8 +1101,8 @@ export async function getAppointments(
         .from(appointments)
         .innerJoin(locations, eq(appointments.locationId, locations.id))
         .innerJoin(patients, eq(appointments.patientId, patients.id))
-        .innerJoin(users, eq(appointments.providerId, users.id))
-        .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+        .leftJoin(users, eq(appointments.providerId, users.id))
+        .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
         .where(whereClause)
         .orderBy(desc(appointments.startTime))
         .limit(limit)

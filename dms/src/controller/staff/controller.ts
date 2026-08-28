@@ -228,7 +228,9 @@ export type UpdateStaffResult =
     const userUpdates: Record<string, unknown> = {};
     if (data.name !== undefined) userUpdates.name = data.name;
     if (data.email !== undefined) userUpdates.email = data.email;
-    if (data.phone !== undefined) userUpdates.phone = data.phone;
+    if (data.phone !== undefined) {
+      userUpdates.phone = data.phone?.trim() ? data.phone.trim() : null;
+    }
     if (data.photoKey !== undefined) userUpdates.photoUrl = data.photoKey;
     if (data.shift !== undefined) userUpdates.shift = data.shift;
     if (data.joinDate !== undefined) userUpdates.joinDate = data.joinDate;
@@ -270,7 +272,20 @@ export type UpdateStaffResult =
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     if (getPgErrorCode(err) === "23505") {
-      return { success: false, error: "A staff member with this email already exists.", code: "DUPLICATE" };
+      const constraint =
+        (err as { cause?: { constraint?: string } })?.cause?.constraint ?? "";
+      if (constraint.includes("phone")) {
+        return {
+          success: false,
+          error: "A staff member with this phone number already exists.",
+          code: "DUPLICATE",
+        };
+      }
+      return {
+        success: false,
+        error: "A staff member with this email already exists.",
+        code: "DUPLICATE",
+      };
     }
     console.error(err);
     return { success: false, error: "Something went wrong updating the staff member.", code: "SERVER_ERROR" };
