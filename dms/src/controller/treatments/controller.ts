@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { appointments, doctorCommissions, inventoryItems, locations, treatmentCommissionRates, treatments, treatmentSupplies } from "@/db/schema";
+import { appointments, inventoryItems, locations, treatments, treatmentSupplies } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { createTreatmentSchema, updateTreatmentSchema } from "@/lib/validators/treatments";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -303,7 +303,6 @@ export async function updateTreatment(treatmentId: string, input: unknown): Prom
 export type DeleteTreatmentResult =
   | { success: true }
   | { success: false; error: string; code: TreatmentErrorCode };
-
 export async function deleteTreatment(treatmentId: string): Promise<DeleteTreatmentResult> {
   try {
     const session = await requireSession();
@@ -313,48 +312,19 @@ export async function deleteTreatment(treatmentId: string): Promise<DeleteTreatm
       return { success: false, error: "Treatment not found.", code: "NOT_FOUND" };
     }
 
-    // 1. Check if there are existing appointments referencing this treatment
-    const linkedAppointments = await db
-      .select({ id: appointments.id })
-      .from(appointments)
-      .where(eq(appointments.treatmentId, treatmentId))
-      .limit(1);
-
-    if (linkedAppointments.length > 0) {
-      return {
-        success: false,
-        error: "Cannot delete this treatment because it is linked to existing appointments. Please reassign or delete those appointments first.",
-        code: "VALIDATION",
-      };
-    }
-
-    // 2. Check if there are doctor commissions referencing this treatment
-    const linkedCommissions = await db
-      .select({ id: doctorCommissions.id })
-      .from(doctorCommissions)
-      .where(eq(doctorCommissions.treatmentId, treatmentId))
-      .limit(1);
-
-    if (linkedCommissions.length > 0) {
-      return {
-        success: false,
-        error: "Cannot delete this treatment because it is linked to doctor commission records.",
-        code: "VALIDATION",
-      };
-    }
-
     await db.transaction(async (tx) => {
-      // 3. Delete any treatment supplies
+      // 1. Unlink any appointments referencing this treatment so foreign key constraint doesn't block deletion
+      await tx
+        .update(appointments)
+        .set({ treatmentId: sql`NULL` })
+        .where(eq(appointments.treatmentId, treatmentId));
+
+      // 2. Delete any treatment supplies
       await tx
         .delete(treatmentSupplies)
         .where(eq(treatmentSupplies.treatmentId, treatmentId));
 
-      // 4. Delete any treatment commission rates
-      await tx
-        .delete(treatmentCommissionRates)
-        .where(eq(treatmentCommissionRates.treatmentId, treatmentId));
-
-      // 5. Delete the treatment itself
+      // 3. Delete the treatment itself
       await tx
         .delete(treatments)
         .where(eq(treatments.id, treatmentId));
@@ -364,14 +334,6 @@ export async function deleteTreatment(treatmentId: string): Promise<DeleteTreatm
   } catch (err) {
     if (err instanceof SessionError) {
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
-    }
-    const pgCode = getPgErrorCode(err);
-    if (pgCode === "23503") {
-      return {
-        success: false,
-        error: "Cannot delete this treatment because it is referenced by other records.",
-        code: "VALIDATION",
-      };
     }
     console.error("Delete treatment error:", err);
     return { success: false, error: "Something went wrong deleting the treatment.", code: "SERVER_ERROR" };
