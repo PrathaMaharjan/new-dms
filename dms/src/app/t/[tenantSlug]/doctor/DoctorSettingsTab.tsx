@@ -27,6 +27,8 @@ import {
   Camera,
 } from "lucide-react";
 import { uploadConfig } from "@/lib/cloudinary/storage";
+import { RichFormattedTextarea } from "@/components/treatments/RichFormattedTextarea";
+import { htmlToCleanMarkdown } from "@/lib/formatters/richText";
 
 const SPECIALIZATIONS = [
   "General Dentistry",
@@ -208,8 +210,8 @@ export default function DoctorSettingsTab() {
           gender: d?.gender || GENDERS[0],
           dob: formattedDob,
           address: pickField(d, "address", "location", "doctorAddress", "residenceAddress"),
-          education: d?.education || "",
-          experienceNotes: d?.bio || d?.experienceNotes || "",
+          education: htmlToCleanMarkdown(d?.education || ""),
+          experienceNotes: htmlToCleanMarkdown(d?.bio || d?.experienceNotes || ""),
         });
       }
     } catch (err) {
@@ -294,12 +296,6 @@ export default function DoctorSettingsTab() {
 
     if (!profile.name.trim()) {
       setErrorMsg("Please enter your full name.");
-      return;
-    }
-
-    const cleanPhone = profile.phone.trim().replace(/[\s-]/g, "");
-    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
-      setErrorMsg("Please enter a valid 10-digit phone number starting with 9 (e.g. 9812345678).");
       return;
     }
 
@@ -657,31 +653,25 @@ export default function DoctorSettingsTab() {
                   />
                 </label>
 
-                <label className="block sm:col-span-2">
-                  <FieldLabel icon={<GraduationCap className="h-3.5 w-3.5" strokeWidth={2} />}>
-                    Education
-                  </FieldLabel>
-                  <textarea
-                    rows={3}
+                <div className="sm:col-span-2">
+                  <RichFormattedTextarea
+                    label="Education"
+                    icon={<GraduationCap className="h-3.5 w-3.5" strokeWidth={2} />}
                     value={profile.education}
-                    onChange={(e) => update("education", e.target.value)}
-                    placeholder="One entry per line"
-                    className={textareaClass}
+                    onChange={(val) => update("education", val)}
+                    helperText="Qualifications, degrees, medical colleges"
                   />
-                </label>
+                </div>
 
-                <label className="block sm:col-span-2">
-                  <FieldLabel icon={<BriefcaseMedical className="h-3.5 w-3.5" strokeWidth={2} />}>
-                    Experience notes
-                  </FieldLabel>
-                  <textarea
-                    rows={3}
+                <div className="sm:col-span-2">
+                  <RichFormattedTextarea
+                    label="Experience notes / Bio"
+                    icon={<BriefcaseMedical className="h-3.5 w-3.5" strokeWidth={2} />}
                     value={profile.experienceNotes}
-                    onChange={(e) => update("experienceNotes", e.target.value)}
-                    placeholder="One entry per line"
-                    className={textareaClass}
+                    onChange={(val) => update("experienceNotes", val)}
+                    helperText="Doctor bio, achievements, clinical experience"
                   />
-                </label>
+                </div>
               </div>
 
               <div className="mt-7 flex justify-end border-t border-slate-100 pt-6">

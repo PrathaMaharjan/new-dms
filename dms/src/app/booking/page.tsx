@@ -98,8 +98,8 @@ export default function BookingPage() {
     setError(null);
 
     const cleanPhone = form.phone.trim().replace(/[\s-]/g, "");
-    if (!cleanPhone || !/^9\d{9}$/.test(cleanPhone)) {
-      setError("Please enter a valid 10-digit phone number starting with 9 (e.g. 9812345678).");
+    if (!cleanPhone) {
+      setError("Please enter your phone number.");
       return;
     }
 

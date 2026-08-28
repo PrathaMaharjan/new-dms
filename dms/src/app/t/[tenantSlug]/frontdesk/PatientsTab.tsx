@@ -277,12 +277,6 @@ export default function PatientsTab() {
       return;
     }
 
-    const cleanPhone = newPatient.phone.trim().replace(/[\s-]/g, "");
-    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
-      setErrorMsg("Please enter a valid 10-digit phone number starting with 9 .");
-      return;
-    }
-
     setSubmitting(true);
     try {
       const payload = {
@@ -348,12 +342,6 @@ export default function PatientsTab() {
 
     if (!editPatient.firstName || !editPatient.lastName) {
       setErrorMsg("Please enter patient first and last name.");
-      return;
-    }
-
-    const cleanPhone = editPatient.phone.trim().replace(/[\s-]/g, "");
-    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
-      setErrorMsg("Please enter a valid 10-digit phone number starting with 9 ).");
       return;
     }
 

@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { appointmentTypes, locations, organizations, treatments } from "@/db/schema";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getImageUrl } from "@/lib/cloudinary/storage";
+import { toSemanticHtml, toCleanPlainText } from "@/lib/formatters/richText";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -101,10 +102,16 @@ export async function GET(request: NextRequest) {
           .filter((s) => Boolean(s.name))
           .map((s) => {
             const resolvedImg = s.imageUrl ? getImageUrl(s.imageUrl, { width: 600, height: 450 }) : null;
+            const plainText = toCleanPlainText(s.description);
+            const formattedHtml = toSemanticHtml(s.description);
+
             return [
               s.name.trim(),
               {
                 ...s,
+                description: formattedHtml || plainText || null,
+                descriptionHtml: formattedHtml || null,
+                descriptionText: plainText || null,
                 imageUrl: resolvedImg,
               },
             ];

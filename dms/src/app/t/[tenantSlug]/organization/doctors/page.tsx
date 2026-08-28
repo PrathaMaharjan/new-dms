@@ -43,6 +43,9 @@ import {
   EyeOff,
 } from "lucide-react";
 import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
+import { RichFormattedTextarea } from "@/components/treatments/RichFormattedTextarea";
+import { FormattedContent } from "@/components/treatments/FormattedContent";
+import { htmlToCleanMarkdown } from "@/lib/formatters/richText";
 import WorkloadConfigCard from "./components/WorkloadConfigCard";
 import DoctorScheduleEditor from "../../doctor/DoctorScheduleEditor";
 
@@ -169,15 +172,19 @@ function doctorToForm(doc: Doctor): FormState {
     gender: doc.gender ?? GENDERS[0],
     dob: dobVal,
     address: doc.address ?? "",
-    education: (doc.education ?? []).join("\n"),
-    experienceNotes: (doc.experienceNotes ?? []).join("\n"),
+    education: (doc.education ?? []).map((e) => htmlToCleanMarkdown(e)).join("\n"),
+    experienceNotes: (doc.experienceNotes ?? []).map((e) => htmlToCleanMarkdown(e)).join("\n"),
     password: "",
     confirmPassword: "",
   };
 }
 
 function linesToArray(value: string): string[] {
-  return value
+  if (!value) return [];
+  const clean = htmlToCleanMarkdown(value);
+  if (!clean) return [];
+
+  return clean
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -575,12 +582,6 @@ export default function DoctorsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSubmitError(null);
-
-    const cleanPhone = form.phone.trim().replace(/[\s-]/g, "");
-    if (cleanPhone && !/^9\d{9}$/.test(cleanPhone)) {
-      setSubmitError("Please enter a valid 10-digit phone number starting with 9 .");
-      return;
-    }
 
     if (modalMode === "add") {
       if (!form.password || form.password.length < 8) {
@@ -1294,33 +1295,21 @@ export default function DoctorsPage() {
                   />
                 </label>
 
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <GraduationCap className="h-3.5 w-3.5" strokeWidth={2} />
-                    Education
-                  </span>
-                  <textarea
-                    rows={3}
-                    value={form.education}
-                    onChange={(e) => update("education", e.target.value)}
+                <RichFormattedTextarea
+                  label="Education"
+                  icon={<GraduationCap className="h-3.5 w-3.5" strokeWidth={2} />}
+                  value={form.education}
+                  onChange={(val) => update("education", val)}
+                  helperText="Qualifications, degrees, medical colleges"
+                />
 
-                    className={textareaClass}
-                  />
-                </label>
-
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <BriefcaseMedical className="h-3.5 w-3.5" strokeWidth={2} />
-                    Experience notes / Bio
-                  </span>
-                  <textarea
-                    rows={3}
-                    placeholder=""
-                    value={form.experienceNotes}
-                    onChange={(e) => update("experienceNotes", e.target.value)}
-                    className={textareaClass}
-                  />
-                </label>
+                <RichFormattedTextarea
+                  label="Experience notes / Bio"
+                  icon={<BriefcaseMedical className="h-3.5 w-3.5" strokeWidth={2} />}
+                  value={form.experienceNotes}
+                  onChange={(val) => update("experienceNotes", val)}
+                  helperText="Doctor bio, past positions, clinical experience"
+                />
                 {modalMode === "add" && (
                   <div className="grid grid-cols-2 gap-4">
                     <label className="block">
@@ -1570,30 +1559,30 @@ export default function DoctorsPage() {
                         <p className="flex items-center gap-1.5 border-l-2 border-[#3f6274] pl-2 text-[0.9rem] font-semibold text-slate-900">
                           Education
                         </p>
-                        <ul className="mt-3 list-disc space-y-1.5 pl-5 text-[0.85rem] text-slate-600">
-                          {selectedDoctor.education && selectedDoctor.education.length > 0 ? (
-                            selectedDoctor.education.map((item, index) => (
-                              <li key={index}>{item}</li>
-                            ))
-                          ) : (
-                            <li>{selectedDoctor.qualification || "—"}</li>
-                          )}
-                        </ul>
+                        <div className="mt-3">
+                          <FormattedContent
+                            content={
+                              selectedDoctor.education && selectedDoctor.education.length > 0
+                                ? selectedDoctor.education.join("\n")
+                                : selectedDoctor.qualification || "—"
+                            }
+                          />
+                        </div>
                       </div>
 
                       <div className="mt-6 border-t border-slate-900/5 pt-5">
                         <p className="flex items-center gap-1.5 border-l-2 border-[#3f6274] pl-2 text-[0.9rem] font-semibold text-slate-900">
                           Experience
                         </p>
-                        <ul className="mt-3 list-disc space-y-1.5 pl-5 text-[0.85rem] text-slate-600">
-                          {selectedDoctor.experienceNotes && selectedDoctor.experienceNotes.length > 0 ? (
-                            selectedDoctor.experienceNotes.map((item, index) => (
-                              <li key={index}>{item}</li>
-                            ))
-                          ) : (
-                            <li>{selectedDoctor.experience} years of experience in {selectedDoctor.specialization.toLowerCase()}</li>
-                          )}
-                        </ul>
+                        <div className="mt-3">
+                          <FormattedContent
+                            content={
+                              selectedDoctor.experienceNotes && selectedDoctor.experienceNotes.length > 0
+                                ? selectedDoctor.experienceNotes.join("\n")
+                                : `${selectedDoctor.experience} years of experience in ${selectedDoctor.specialization.toLowerCase()}`
+                            }
+                          />
+                        </div>
                       </div>
                     </>
                   )}

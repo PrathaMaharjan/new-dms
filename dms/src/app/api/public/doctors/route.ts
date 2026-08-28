@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { organizations, users, userLocationRoles, providerProfiles } from "@/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { getImageUrl } from "@/lib/cloudinary/storage";
+import { toSemanticHtml, toCleanPlainText } from "@/lib/formatters/richText";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,10 +72,27 @@ export async function GET(request: NextRequest) {
           .filter((d) => Boolean(d.name))
           .map((d) => {
             const resolvedUrl = d.photoUrl ? getImageUrl(d.photoUrl, { width: 400, height: 400 }) : null;
+            const formattedBio = toSemanticHtml(d.bio);
+            const plainBio = toCleanPlainText(d.bio);
+            const formattedQual = toSemanticHtml(d.qualification);
+            const plainQual = toCleanPlainText(d.qualification);
+
             return [
               d.name.trim(),
               {
-                ...d,
+                id: d.id,
+                name: d.name,
+                specialization: d.specialization || null,
+                qualification: plainQual || null,
+                qualificationHtml: formattedQual || null,
+
+                yearsOfExperience: d.yearsOfExperience ?? null,
+                experience: d.yearsOfExperience ?? null,
+                bio: formattedBio || plainBio || null,
+                bioHtml: formattedBio || null,
+                bioText: plainBio || null,
+                experienceNotes: formattedBio || plainBio || null,
+                experienceNotesHtml: formattedBio || null,
                 imageUrl: resolvedUrl,
                 photoUrl: resolvedUrl,
               },

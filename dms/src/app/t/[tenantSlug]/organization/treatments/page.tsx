@@ -38,6 +38,8 @@ import {
   ImageIcon,
 } from "lucide-react";
 import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
+import { RichFormattedTextarea } from "@/components/treatments/RichFormattedTextarea";
+import { FormattedContent } from "@/components/treatments/FormattedContent";
 
 const CATEGORIES: string[] = [];
 
@@ -85,6 +87,8 @@ const EMPTY_FORM = {
   imageUrl: "",
 };
 
+import { htmlToCleanMarkdown } from "@/lib/formatters/richText";
+
 type FormState = typeof EMPTY_FORM;
 
 const inputClass =
@@ -94,26 +98,42 @@ const textareaClass =
   "w-full rounded-xl border border-slate-900/10 bg-white px-3.5 py-2.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-[#7da3b3]";
 
 function treatmentToForm(t: Treatment): FormState {
+  const formatArrayForEditor = (arr?: string[]) => {
+    if (!arr || arr.length === 0) return "";
+    return arr
+      .map((item) => {
+        if (!item) return "";
+        const clean = htmlToCleanMarkdown(item);
+        return clean.startsWith("- ") || clean.startsWith("* ") ? clean : `- ${clean}`;
+      })
+      .filter(Boolean)
+      .join("\n");
+  };
+
   return {
     name: t.name,
     category: t.category,
     duration: t.duration,
     price: String(t.price),
-    description: t.description,
+    description: htmlToCleanMarkdown(t.description || ""),
     sessions: t.sessions ?? "",
     recoveryTime: t.recoveryTime ?? "",
     anesthesia: t.anesthesia ?? ANESTHESIA_OPTIONS[0],
-    procedureSteps: (t.procedureSteps ?? []).join("\n"),
-    aftercare: (t.aftercare ?? []).join("\n"),
+    procedureSteps: formatArrayForEditor(t.procedureSteps),
+    aftercare: formatArrayForEditor(t.aftercare),
     imageUrl: t.imageUrl ?? "",
   };
 }
 
 function linesToArray(value: string): string[] {
-  return value
+  if (!value) return [];
+  const clean = htmlToCleanMarkdown(value);
+  if (!clean) return [];
+
+  return clean
     .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+    .map((line) => line.replace(/^[-*•]\s+/, "").replace(/^\d+\.\s+/, "").trim())
+    .filter((line) => line.length > 0);
 }
 
 export default function TreatmentsPage() {
@@ -140,7 +160,14 @@ export default function TreatmentsPage() {
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed)) {
-            setCategoriesList(Array.from(new Set([...CATEGORIES, ...parsed])));
+            const cleanCustom = parsed.filter(
+              (c: string) =>
+                typeof c === "string" &&
+                c.trim().toLowerCase() !== "mm" &&
+                c.trim().length > 0
+            );
+            localStorage.setItem(storageKey, JSON.stringify(cleanCustom));
+            setCategoriesList(Array.from(new Set([...CATEGORIES, ...cleanCustom])));
           }
         }
       } catch (e) {}
@@ -152,7 +179,7 @@ export default function TreatmentsPage() {
 
   const handleAddCategory = () => {
     const trimmed = newCategoryInput.trim();
-    if (!trimmed) return;
+    if (!trimmed || trimmed.toLowerCase() === "mm") return;
     const formatted = trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
     if (!categoriesList.includes(formatted)) {
       const updated = [...categoriesList, formatted];
@@ -175,12 +202,9 @@ export default function TreatmentsPage() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [selectedTreatment, setSelectedTreatment] = useState<Treatment | null>(null);
   const [outletFilter, setOutletFilter] = useState("");
-  const [profileTab, setProfileTab] = useState<"detail" | "procedure" | "aftercare">(
-    "detail"
-  );
-
-  const [outletsList, setOutletsList] = useState<{ id: string; name: string }[]>(OUTLETS_DEFAULT);
+  const [profileTab, setProfileTab] = useState<"detail" | "procedure" | "aftercare">("detail");
   const [todayBookingsCount, setTodayBookingsCount] = useState<number>(0);
+  const [outletsList, setOutletsList] = useState<{ id: string; name: string }[]>(OUTLETS_DEFAULT);
 
   async function loadData() {
     try {
@@ -219,11 +243,16 @@ export default function TreatmentsPage() {
         }).catch(() => null),
       ]);
 
-      if (apptsRes?.data?.success && Array.isArray(apptsRes.data.data?.appointments)) {
+      if (
+        apptsRes?.data?.success &&
+        Array.isArray(apptsRes.data.data?.appointments)
+      ) {
         const todayStr = new Date().toISOString().slice(0, 10);
         const count = apptsRes.data.data.appointments.filter((a: any) => {
           if (a.status === "cancelled") return false;
-          const aDate = a.date || (a.startTime ? new Date(a.startTime).toISOString().slice(0, 10) : "");
+          const aDate =
+            a.date ||
+            (a.startTime ? new Date(a.startTime).toISOString().slice(0, 10) : "");
           return aDate === todayStr;
         }).length;
         setTodayBookingsCount(count);
@@ -238,10 +267,13 @@ export default function TreatmentsPage() {
         dbTreatments.forEach((t: any, index: number) => {
           if (t.id && !seen.has(t.id)) {
             seen.add(t.id);
+            const rawCat = (t.category || "").trim();
             const catName =
-              CATEGORIES.find((c) => c.toLowerCase() === (t.category || "").toLowerCase()) ||
-              (t.category ? t.category.charAt(0).toUpperCase() + t.category.slice(1) : "General");
-            if (catName && !CATEGORIES.includes(catName)) {
+              rawCat.toLowerCase() === "mm"
+                ? ""
+                : CATEGORIES.find((c) => c.toLowerCase() === rawCat.toLowerCase()) ||
+                  (rawCat ? rawCat.charAt(0).toUpperCase() + rawCat.slice(1) : "");
+            if (catName && !CATEGORIES.includes(catName) && catName.toLowerCase() !== "mm") {
               setCategoriesList((prev) => (prev.includes(catName) ? prev : [...prev, catName]));
             }
             mapped.push({
@@ -1083,48 +1115,27 @@ export default function TreatmentsPage() {
                   </label>
                 </div>
 
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <ClipboardList className="h-3.5 w-3.5" strokeWidth={2} />
-                    Description
-                  </span>
-                  <textarea
-                    required
-                    rows={3}
-                    value={form.description}
-                    onChange={(e) => update("description", e.target.value)}
-                    placeholder="Brief overview of what this treatment involves"
-                    className={textareaClass}
-                  />
-                </label>
+                <RichFormattedTextarea
+                  required
+                  label="Description"
+                  icon={<ClipboardList className="h-3.5 w-3.5" strokeWidth={2} />}
+                  value={form.description}
+                  onChange={(val) => update("description", val)}
+                />
 
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <ListChecks className="h-3.5 w-3.5" strokeWidth={2} />
-                    Procedure steps (one per line)
-                  </span>
-                  <textarea
-                    rows={3}
-                    value={form.procedureSteps}
-                    onChange={(e) => update("procedureSteps", e.target.value)}
-                    placeholder={""}
-                    className={textareaClass}
-                  />
-                </label>
+                <RichFormattedTextarea
+                  label="Procedure steps (one per line)"
+                  icon={<ListChecks className="h-3.5 w-3.5" strokeWidth={2} />}
+                  value={form.procedureSteps}
+                  onChange={(val) => update("procedureSteps", val)}
+                />
 
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <ShieldCheck className="h-3.5 w-3.5" strokeWidth={2} />
-                    Aftercare (one per line)
-                  </span>
-                  <textarea
-                    rows={3}
-                    value={form.aftercare}
-                    onChange={(e) => update("aftercare", e.target.value)}
-                    placeholder={""}
-                    className={textareaClass}
-                  />
-                </label>
+                <RichFormattedTextarea
+                  label="Aftercare instructions (one per line)"
+                  icon={<ShieldCheck className="h-3.5 w-3.5" strokeWidth={2} />}
+                  value={form.aftercare}
+                  onChange={(val) => update("aftercare", val)}
+                />
 
                 <div className="flex items-center gap-3 pt-2">
                   <button
@@ -1201,9 +1212,9 @@ export default function TreatmentsPage() {
                   </span>
                 </div>
 
-                <p className="mt-3 text-[0.85rem] leading-relaxed text-slate-600">
-                  {selectedTreatment.description}
-                </p>
+                <div className="mt-3">
+                  <FormattedContent content={selectedTreatment.description} />
+                </div>
               </div>
 
               {/* Tabs */}
@@ -1291,11 +1302,13 @@ export default function TreatmentsPage() {
                   </p>
                   {selectedTreatment.procedureSteps &&
                     selectedTreatment.procedureSteps.length > 0 ? (
-                    <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[0.85rem] text-slate-600">
-                      {selectedTreatment.procedureSteps.map((item) => (
-                        <li key={item}>{item}</li>
+                    <div className="mt-3 space-y-2 text-[0.85rem] text-slate-600">
+                      {selectedTreatment.procedureSteps.map((item, idx) => (
+                        <div key={idx} className="leading-relaxed">
+                          <FormattedContent content={item} />
+                        </div>
                       ))}
-                    </ol>
+                    </div>
                   ) : (
                     <p className="mt-3 text-[0.85rem] text-slate-500">
                       No procedure steps recorded yet.
@@ -1310,11 +1323,13 @@ export default function TreatmentsPage() {
                     Aftercare Instructions
                   </p>
                   {selectedTreatment.aftercare && selectedTreatment.aftercare.length > 0 ? (
-                    <ul className="mt-3 list-disc space-y-1.5 pl-5 text-[0.85rem] text-slate-600">
-                      {selectedTreatment.aftercare.map((item) => (
-                        <li key={item}>{item}</li>
+                    <div className="mt-3 space-y-2 text-[0.85rem] text-slate-600">
+                      {selectedTreatment.aftercare.map((item, idx) => (
+                        <div key={idx} className="leading-relaxed">
+                          <FormattedContent content={item} />
+                        </div>
                       ))}
-                    </ul>
+                    </div>
                   ) : (
                     <p className="mt-3 text-[0.85rem] text-slate-500">
                       No aftercare instructions recorded yet.
