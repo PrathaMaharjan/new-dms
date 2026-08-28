@@ -1,4 +1,3 @@
-// src/lib/controllers/appointments.controller.ts
 import {
   eq,
   and,

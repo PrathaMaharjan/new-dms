@@ -362,8 +362,6 @@ export function generateVisitReportPdf(data: VisitReportData): Promise<Buffer> {
 
     drawSignatureBlock(doc, data.doctorName, data.doctorQualification);
     drawConfidentialityNotice(doc);
-    // ✅ Automatic page breaks happen throughout via checkPageBreak() calls
-    // inside every section/card helper above - never a fixed page count.
 
     addFooters(doc); // must run right before .end(), after all content is drawn
     doc.end();
