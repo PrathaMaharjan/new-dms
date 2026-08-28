@@ -42,7 +42,7 @@ export const doctorCommissions = pgTable(
     doctorId: uuid("doctor_id").notNull().references(() => users.id),
     appointmentId: uuid("appointment_id").notNull().unique().references(() => appointments.id),
     ledgerEntryId: uuid("ledger_entry_id").notNull().references(() => ledgerEntries.id),
-    treatmentId: uuid("treatment_id").notNull().references(() => treatments.id),
+    treatmentId: uuid("treatment_id").notNull().references(() => treatments.id, { onDelete: "cascade" }),
     tierId: uuid("tier_id").references(() => commissionExperienceTiers.id), 
     commissionPercent: integer("commission_percent").notNull(),
     chargeAmountCents: integer("charge_amount_cents").notNull(),

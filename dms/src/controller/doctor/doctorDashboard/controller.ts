@@ -80,11 +80,14 @@ export async function getAppointments(
       db
         .select({
           id: appointments.id,
+          patientId: appointments.patientId,
           patientName: sql<string>`${patients.firstName} || ' ' || ${patients.lastName}`,
           patientPhone: patients.phone,
           patientEmail: patients.email,
           patientAge: patients.age,
+          providerId: appointments.providerId,
           providerName: users.name,
+          treatmentId: appointments.treatmentId,
           treatmentName: treatments.name,
           startTime: appointments.startTime,
           endTime: appointments.endTime,
@@ -95,8 +98,8 @@ export async function getAppointments(
         .from(appointments)
         .innerJoin(locations, eq(appointments.locationId, locations.id))
         .innerJoin(patients, eq(appointments.patientId, patients.id))
-        .innerJoin(users, eq(appointments.providerId, users.id))
-        .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+        .leftJoin(users, eq(appointments.providerId, users.id))
+        .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
         .where(whereClause)
         .orderBy(desc(appointments.startTime))
         .limit(limit)

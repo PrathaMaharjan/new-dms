@@ -1,5 +1,13 @@
 import { db } from "@/db";
-import { appointments, inventoryItems, locations, treatments, treatmentSupplies } from "@/db/schema";
+import {
+  appointments,
+  doctorCommissions,
+  inventoryItems,
+  locations,
+  treatments,
+  treatmentCommissionRates,
+  treatmentSupplies,
+} from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { createTreatmentSchema, updateTreatmentSchema } from "@/lib/validators/treatments";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -319,12 +327,22 @@ export async function deleteTreatment(treatmentId: string): Promise<DeleteTreatm
         .set({ treatmentId: sql`NULL` })
         .where(eq(appointments.treatmentId, treatmentId));
 
-      // 2. Delete any treatment supplies
+      // 2. Delete any doctor commissions referencing this treatment
+      await tx
+        .delete(doctorCommissions)
+        .where(eq(doctorCommissions.treatmentId, treatmentId));
+
+      // 3. Delete any treatment commission rates
+      await tx
+        .delete(treatmentCommissionRates)
+        .where(eq(treatmentCommissionRates.treatmentId, treatmentId));
+
+      // 4. Delete any treatment supplies
       await tx
         .delete(treatmentSupplies)
         .where(eq(treatmentSupplies.treatmentId, treatmentId));
 
-      // 3. Delete the treatment itself
+      // 5. Delete the treatment itself
       await tx
         .delete(treatments)
         .where(eq(treatments.id, treatmentId));

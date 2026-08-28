@@ -180,7 +180,6 @@ export default function DoctorPatientsTab() {
       }
 
       const patientApptsMap: Record<string, any[]> = {};
-      const patientNameApptsMap: Record<string, any[]> = {};
 
       if (currentLocId) {
         const apptsRes = await axios
@@ -198,22 +197,15 @@ export default function DoctorPatientsTab() {
               if (!patientApptsMap[a.patientId]) patientApptsMap[a.patientId] = [];
               patientApptsMap[a.patientId].push(a);
             }
-            if (a.patientName) {
-              const key = a.patientName.trim().toLowerCase();
-              if (!patientNameApptsMap[key]) patientNameApptsMap[key] = [];
-              patientNameApptsMap[key].push(a);
-            }
           });
         }
       }
-
 
       if (patientsRes?.data?.success && patientsRes.data.data.patients) {
         const rawPatients = patientsRes.data.data.patients;
         const mappedPromises = rawPatients.map(async (p: any) => {
           const patientName = `${p.firstName || ""} ${p.lastName || ""}`.trim() || "Patient";
-          const normName = patientName.toLowerCase();
-          const appts = patientApptsMap[p.id] || patientNameApptsMap[normName] || [];
+          const appts = patientApptsMap[p.id] || [];
 
           const historyRecords: TreatmentRecord[] = appts.map((a: any) => {
             const dateStr = a.startTime
@@ -342,6 +334,8 @@ export default function DoctorPatientsTab() {
       setNoteableAppts(noteables);
       if (noteables.length > 0) {
         setSelectedAppointmentId(noteables[0].id);
+      } else if (historyRecords.length > 0) {
+        setSelectedAppointmentId(historyRecords[0].id);
       } else {
         setSelectedAppointmentId("");
       }
@@ -367,11 +361,7 @@ export default function DoctorPatientsTab() {
     e.preventDefault();
     if (!selectedPatient || !newNotes) return;
 
-    if (!selectedAppointmentId && noteableAppts.length > 0) {
-      setSelectedAppointmentId(noteableAppts[0].id);
-    }
-
-    const apptIdToUse = selectedAppointmentId || noteableAppts[0]?.id;
+    const apptIdToUse = selectedAppointmentId || noteableAppts[0]?.id || selectedPatient.history[0]?.id;
     if (!apptIdToUse) {
       setErrorMsg("No appointment selected to attach this clinical note.");
       return;
