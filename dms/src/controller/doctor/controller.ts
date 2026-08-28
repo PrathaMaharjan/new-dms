@@ -54,7 +54,7 @@ function getPgErrorCode(err: unknown): string | undefined {
 // to the caller's own org - the same two-part check used for Treatments.
 async function findOwnedDoctor(doctorId: string, orgId: string) {
   const rows = await db
-    .select({ id: users.id, name: users.name, email: users.email })
+    .select({ id: users.id, name: users.name, email: users.email, phone: users.phone })
     .from(users)
     .where(
       and(
@@ -372,10 +372,14 @@ export async function updateDoctor(doctorId: string, input: unknown): Promise<Up
     }
 
     const updatedUser = await db.transaction(async (tx) => {
-      const userUpdates: Partial<{ name: string; email: string; phone: string }> = {};
+      const userUpdates: Partial<{ name: string; email: string; phone: string | null; photoUrl: string | null }> = {};
       if (data.name !== undefined) userUpdates.name = data.name;
-      if (data.email !== undefined) userUpdates.email = data.email;
-      if (data.phone !== undefined) userUpdates.phone = data.phone;
+      if (data.email !== undefined && data.email !== owned.email) userUpdates.email = data.email;
+      if (data.phone !== undefined) {
+        const cleanPhone = data.phone?.trim() ? data.phone.trim() : null;
+        if (cleanPhone !== owned.phone) userUpdates.phone = cleanPhone;
+      }
+      if (data.photoKey !== undefined) userUpdates.photoUrl = data.photoKey;
 
       let user = owned;
       if (Object.keys(userUpdates).length > 0) {
@@ -399,7 +403,15 @@ export async function updateDoctor(doctorId: string, input: unknown): Promise<Up
       if (data.address !== undefined) profileUpdates.address = data.address;
       if (data.employmentType !== undefined) profileUpdates.employmentType = data.employmentType;
 
-      await tx.update(providerProfiles).set(profileUpdates).where(eq(providerProfiles.userId, doctorId));
+      const [existingProfile] = await tx.select().from(providerProfiles).where(eq(providerProfiles.userId, doctorId));
+      if (existingProfile) {
+        await tx.update(providerProfiles).set(profileUpdates).where(eq(providerProfiles.userId, doctorId));
+      } else {
+        await tx.insert(providerProfiles).values({
+          userId: doctorId,
+          ...profileUpdates,
+        });
+      }
 
       return user;
     });
@@ -425,7 +437,20 @@ export async function updateDoctor(doctorId: string, input: unknown): Promise<Up
       return { success: false, error: err.message, code: "UNAUTHORIZED" };
     }
     if (getPgErrorCode(err) === "23505") {
-      return { success: false, error: "A staff member with this email already exists.", code: "DUPLICATE" };
+      const constraint =
+        (err as { cause?: { constraint?: string } })?.cause?.constraint ?? "";
+      if (constraint.includes("phone")) {
+        return {
+          success: false,
+          error: "A staff member with this phone number already exists.",
+          code: "DUPLICATE",
+        };
+      }
+      return {
+        success: false,
+        error: "A staff member with this email already exists.",
+        code: "DUPLICATE",
+      };
     }
     console.error(err);
     return { success: false, error: "Something went wrong updating the doctor.", code: "SERVER_ERROR" };

@@ -48,8 +48,11 @@ export async function updateMyDetails(input: unknown): Promise<UpdateMyDetailsRe
       const lastName = data.lastName ?? currentRest.join(" ");
       updates.name = [firstName, lastName].filter(Boolean).join(" ");
     }
-    if (data.email !== undefined) updates.email = data.email;
-    if (data.phone !== undefined) updates.phone = data.phone;
+    if (data.email !== undefined && data.email !== current.email) updates.email = data.email;
+    if (data.phone !== undefined) {
+      const cleanPhone = data.phone?.trim() ? data.phone.trim() : null;
+      if (cleanPhone !== current.phone) updates.phone = cleanPhone;
+    }
     if (data.photoKey !== undefined) updates.photoUrl = data.photoKey;
 
     const [updated] = await db.update(users).set(updates).where(eq(users.id, session.userId)).returning();
