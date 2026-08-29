@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import { appointments, patients, treatments } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
-import { and, countDistinct, eq, gt, gte, lte, ne, sql } from "drizzle-orm";
+import { and, countDistinct, eq, gt, gte, inArray, lte, ne, sql } from "drizzle-orm";
 
 export type DashboardErrorCode = "UNAUTHORIZED" | "SERVER_ERROR";
 // function startOfDay(date: Date): Date {
@@ -59,6 +59,13 @@ export async function getDoctorDashboardStats(
     const todayStart = startOfDay(now);
     const todayEnd = endOfDay(now);
 
+    const baseWhere = [
+      eq(appointments.providerId, doctorId),
+    ];
+    if (locationId) {
+      baseWhere.push(eq(appointments.locationId, locationId));
+    }
+
     const [
       appointmentsTodayResult,
       completedTodayResult,
@@ -70,11 +77,11 @@ export async function getDoctorDashboardStats(
         .from(appointments)
         .where(
           and(
-            eq(appointments.providerId, doctorId),
-            eq(appointments.locationId, locationId),
+            ...baseWhere,
             gte(appointments.startTime, todayStart),
             lte(appointments.startTime, todayEnd),
             ne(appointments.status, "cancelled"),
+            ne(appointments.status, "requested"),
           ),
         ),
       db
@@ -82,39 +89,31 @@ export async function getDoctorDashboardStats(
         .from(appointments)
         .where(
           and(
-            eq(appointments.providerId, doctorId),
-            eq(appointments.locationId, locationId),
+            ...baseWhere,
             gte(appointments.startTime, todayStart),
             lte(appointments.startTime, todayEnd),
             eq(appointments.status, "completed"),
           ),
         ),
-      // Strictly future (excludes today) - matches the screenshot
-      // showing 0 while 7 appointments exist today. Swap gt() for
-      // gte(todayStart) if today's remaining slots should count too.
       db
         .select({ count: sql<number>`count(*)::int` })
         .from(appointments)
         .where(
           and(
-            eq(appointments.providerId, doctorId),
-            eq(appointments.locationId, locationId),
-            gt(appointments.startTime, now),
+            ...baseWhere,
+            gte(appointments.startTime, todayStart),
             lte(appointments.startTime, endOfWeek(now)),
             ne(appointments.status, "cancelled"),
             ne(appointments.status, "completed"),
+            ne(appointments.status, "requested"),
           ),
         ),
-      // "Active" = distinct patients with at least one non-cancelled
-      // appointment, ever - flagged since "currently upcoming only"
-      // would give a materially smaller number.
       db
         .select({ count: countDistinct(appointments.patientId) })
         .from(appointments)
         .where(
           and(
-            eq(appointments.providerId, doctorId),
-            eq(appointments.locationId, locationId),
+            ...baseWhere,
             ne(appointments.status, "cancelled"),
           ),
         ),
@@ -176,15 +175,19 @@ async function getDailyTrend(doctorId: string, locationId: string): Promise<Appo
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    days.push({ label: d.toLocaleDateString("en-US", { weekday: "short" }), date: d.toISOString().slice(0, 10), count: 0 });
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const dayNum = String(d.getDate()).padStart(2, "0");
+    const dateStr = `${year}-${month}-${dayNum}`;
+    days.push({ label: d.toLocaleDateString("en-US", { weekday: "short" }), date: dateStr, count: 0 });
   }
 
-  const rangeStart = startOfDay(new Date(days[0].date));
+  const rangeStart = startOfDay(new Date(now));
+  rangeStart.setDate(rangeStart.getDate() - 6);
 
   const rows = await db
     .select({
-      date: sql<string>`to_char(${appointments.startTime}, 'YYYY-MM-DD')`,
-      count: sql<number>`count(*)::int`,
+      startTime: appointments.startTime,
     })
     .from(appointments)
     .where(
@@ -193,12 +196,21 @@ async function getDailyTrend(doctorId: string, locationId: string): Promise<Appo
         eq(appointments.locationId, locationId),
         gte(appointments.startTime, rangeStart),
         lte(appointments.startTime, endOfDay(now)),
-        ne(appointments.status, "cancelled")
+        ne(appointments.status, "cancelled"),
+        ne(appointments.status, "requested"),
       )
-    )
-    .groupBy(sql`to_char(${appointments.startTime}, 'YYYY-MM-DD')`);
+    );
 
-  const countsByDate = new Map(rows.map((r) => [r.date, r.count]));
+  const countsByDate = new Map<string, number>();
+  for (const row of rows) {
+    const d = row.startTime instanceof Date ? row.startTime : new Date(row.startTime);
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const dayNum = String(d.getDate()).padStart(2, "0");
+    const dateStr = `${year}-${month}-${dayNum}`;
+    countsByDate.set(dateStr, (countsByDate.get(dateStr) || 0) + 1);
+  }
+
   const trend = days.map((d) => ({ label: d.label, count: countsByDate.get(d.date) ?? 0 }));
 
   return { success: true, trend };
@@ -359,14 +371,28 @@ export async function getUpNextAppointment(
   try {
     const session = await requireSession();
     const now = new Date();
+    const todayStart = startOfDay(now);
+    const todayEnd = endOfDay(now);
 
-    const [result] = await db
+    const baseWhere = [
+      eq(appointments.providerId, session.userId),
+      inArray(appointments.status, ["confirmed", "checked_in"]),
+      gte(appointments.startTime, todayStart),
+      lte(appointments.startTime, todayEnd),
+    ];
+    if (locationId) {
+      baseWhere.push(eq(appointments.locationId, locationId));
+    }
+
+    // 1. First, look for the ongoing or next upcoming appointment today
+    let [result] = await db
       .select({
         id: appointments.id,
         patientName: sql<string>`coalesce(${patients.firstName} || ' ' || ${patients.lastName}, 'Patient')`,
         patientPhone: patients.phone,
         treatmentName: sql<string>`coalesce(${treatments.name}, 'General Consultation')`,
         startTime: appointments.startTime,
+        endTime: appointments.endTime,
         notes: appointments.notes,
       })
       .from(appointments)
@@ -374,27 +400,50 @@ export async function getUpNextAppointment(
       .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
       .where(
         and(
-          eq(appointments.providerId, session.userId),
-          eq(appointments.locationId, locationId),
-          gt(appointments.startTime, now),
-          ne(appointments.status, "cancelled"),
-          ne(appointments.status, "requested"),
-          ne(appointments.status, "completed"),
-          ne(appointments.status, "no_show"),
+          ...baseWhere,
+          gte(appointments.endTime, now),
         ),
       )
       .orderBy(appointments.startTime)
       .limit(1);
 
+    // 2. If none has endTime in the future, pick the first active uncompleted appointment today
+    if (!result) {
+      [result] = await db
+        .select({
+          id: appointments.id,
+          patientName: sql<string>`coalesce(${patients.firstName} || ' ' || ${patients.lastName}, 'Patient')`,
+          patientPhone: patients.phone,
+          treatmentName: sql<string>`coalesce(${treatments.name}, 'General Consultation')`,
+          startTime: appointments.startTime,
+          endTime: appointments.endTime,
+          notes: appointments.notes,
+        })
+        .from(appointments)
+        .leftJoin(patients, eq(appointments.patientId, patients.id))
+        .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
+        .where(and(...baseWhere))
+        .orderBy(appointments.startTime)
+        .limit(1);
+    }
+
     if (!result) {
       return { success: true, appointment: null };
     }
 
+    const d = result.startTime instanceof Date ? result.startTime : new Date(result.startTime);
+    const hours = String(d.getHours()).padStart(2, "0");
+    const mins = String(d.getMinutes()).padStart(2, "0");
+
     return {
       success: true,
       appointment: {
-        ...result,
-        startTime: result.startTime.toTimeString().slice(0, 5),
+        id: result.id,
+        patientName: result.patientName,
+        patientPhone: result.patientPhone,
+        treatmentName: result.treatmentName,
+        startTime: `${hours}:${mins}`,
+        notes: result.notes,
       },
     };
   } catch (err) {
@@ -430,6 +479,18 @@ export async function getTodaysSchedule(
   try {
     const session = await requireSession();
     const now = new Date();
+    const todayStart = startOfDay(now);
+    const todayEnd = endOfDay(now);
+
+    const baseWhere = [
+      eq(appointments.providerId, session.userId),
+      gte(appointments.startTime, todayStart),
+      lte(appointments.startTime, todayEnd),
+      ne(appointments.status, "requested"),
+    ];
+    if (locationId) {
+      baseWhere.push(eq(appointments.locationId, locationId));
+    }
 
     const rows = await db
       .select({
@@ -442,23 +503,23 @@ export async function getTodaysSchedule(
       .from(appointments)
       .leftJoin(patients, eq(appointments.patientId, patients.id))
       .leftJoin(treatments, eq(appointments.treatmentId, treatments.id))
-      .where(
-        and(
-          eq(appointments.providerId, session.userId),
-          eq(appointments.locationId, locationId),
-          gte(appointments.startTime, startOfDay(now)),
-          lte(appointments.startTime, endOfDay(now)),
-          ne(appointments.status, "requested"),
-        ),
-      )
+      .where(and(...baseWhere))
       .orderBy(appointments.startTime);
 
     return {
       success: true,
-      appointments: rows.map((r) => ({
-        ...r,
-        startTime: r.startTime.toTimeString().slice(0, 5),
-      })),
+      appointments: rows.map((r) => {
+        const d = r.startTime instanceof Date ? r.startTime : new Date(r.startTime);
+        const hours = String(d.getHours()).padStart(2, "0");
+        const mins = String(d.getMinutes()).padStart(2, "0");
+        return {
+          id: r.id,
+          patientName: r.patientName,
+          treatmentName: r.treatmentName,
+          startTime: `${hours}:${mins}`,
+          status: r.status,
+        };
+      }),
     };
   } catch (err) {
     if (err instanceof SessionError) {

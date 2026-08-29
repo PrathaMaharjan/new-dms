@@ -17,6 +17,8 @@ import {
   Sparkles,
   Timer,
   X,
+  MapPin,
+  Building2,
 } from "lucide-react";
 
 export interface ScheduleDay {
@@ -86,6 +88,7 @@ export default function DoctorScheduleEditor({
 }: DoctorScheduleEditorProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [locationsList, setLocationsList] = useState<{ id: string; name: string }[]>([]);
   const [doctorsList, setDoctorsList] = useState<{ id: string; name: string; email?: string }[]>([]);
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(() => {
     if (initialDoctorId) return initialDoctorId;
@@ -139,20 +142,32 @@ export default function DoctorScheduleEditor({
   useEffect(() => {
     async function initContext() {
       try {
-        let locId = selectedLocationId || initialLocationId;
-        if (!locId) {
-          try {
-            const savedLoc = localStorage.getItem("dms_location_id") || localStorage.getItem("current_location_id");
-            if (savedLoc) locId = savedLoc;
-          } catch (e) {}
+        // Fetch valid outlets for current tenant
+        const outletsRes = await axios.get("/api/outlets").catch(() => null);
+        const validLocations: { id: string; name: string }[] =
+          outletsRes?.data?.data?.locations ||
+          outletsRes?.data?.data?.outlets ||
+          [];
+
+        if (isMountedRef.current) {
+          setLocationsList(validLocations);
         }
 
-        if (!locId) {
-          const outletsRes = await axios.get("/api/outlets").catch(() => null);
-          locId =
-            outletsRes?.data?.data?.locations?.[0]?.id ||
-            outletsRes?.data?.data?.outlets?.[0]?.id ||
-            "";
+        let locId = initialLocationId || selectedLocationId;
+        const savedLoc =
+          typeof window !== "undefined"
+            ? localStorage.getItem("dms_location_id") || localStorage.getItem("current_location_id")
+            : null;
+
+        // Verify if locId or savedLoc exists in validLocations
+        if (!validLocations.some((l) => l.id === locId)) {
+          if (savedLoc && validLocations.some((l) => l.id === savedLoc)) {
+            locId = savedLoc;
+          } else if (validLocations.length > 0) {
+            locId = validLocations[0].id;
+          } else {
+            locId = "";
+          }
         }
 
         if (locId && isMountedRef.current) {
@@ -213,7 +228,7 @@ export default function DoctorScheduleEditor({
   }, [initialDoctorId, initialLocationId, showDoctorSelector]);
 
   // Fetch schedule for the active doctor
-  const loadDoctorSchedule = useCallback(async (docId: string) => {
+  const loadDoctorSchedule = useCallback(async (docId: string, locId?: string) => {
     if (!docId) {
       if (isMountedRef.current) setLoading(false);
       return;
@@ -236,15 +251,21 @@ export default function DoctorScheduleEditor({
         setCurrentDoctorName(res.data.data.doctor.name);
       }
 
-      if (Array.isArray(fetched) && fetched.length > 0 && isMountedRef.current) {
+      const activeLoc = locId || selectedLocationId;
+      const filteredByLoc =
+        Array.isArray(fetched) && activeLoc
+          ? fetched.filter((s: any) => !s.locationId || s.locationId === activeLoc)
+          : fetched;
+
+      if (Array.isArray(filteredByLoc) && filteredByLoc.length > 0 && isMountedRef.current) {
         let detectedBuffer = 30;
         const targetDayWithBuffer =
-          fetched.find(
+          filteredByLoc.find(
             (s: any) =>
               !s.isOnLeave &&
               (typeof s.bufferTime === "number" || typeof s.bufferMinutes === "number"),
           ) ||
-          fetched.find(
+          filteredByLoc.find(
             (s: any) =>
               typeof s.bufferTime === "number" || typeof s.bufferMinutes === "number",
           );
@@ -257,7 +278,7 @@ export default function DoctorScheduleEditor({
         setBufferMinutes(detectedBuffer);
 
         const merged = DEFAULT_SCHEDULE.map((defaultDay) => {
-          const existing = fetched.find((s: any) => s.dayOfWeek === defaultDay.dayOfWeek);
+          const existing = filteredByLoc.find((s: any) => s.dayOfWeek === defaultDay.dayOfWeek);
           if (existing) {
             const sTime = existing.startTime ? existing.startTime.slice(0, 5) : "09:00";
             const eTime = existing.endTime ? existing.endTime.slice(0, 5) : "17:00";
@@ -292,13 +313,13 @@ export default function DoctorScheduleEditor({
         setLoading(false);
       }
     }
-  }, []);
+  }, [selectedLocationId]);
 
   useEffect(() => {
     if (selectedDoctorId) {
       loadDoctorSchedule(selectedDoctorId);
     }
-  }, [selectedDoctorId, loadDoctorSchedule]);
+  }, [selectedDoctorId, selectedLocationId, loadDoctorSchedule]);
 
   const handleDoctorChange = (id: string) => {
     setSelectedDoctorId(id);
@@ -413,21 +434,35 @@ export default function DoctorScheduleEditor({
     }
 
     let activeLocId = selectedLocationId;
-    if (!activeLocId) {
+    if (!activeLocId || (locationsList.length > 0 && !locationsList.some((l) => l.id === activeLocId))) {
       try {
-        const savedLoc = localStorage.getItem("dms_location_id") || localStorage.getItem("current_location_id");
-        if (savedLoc) activeLocId = savedLoc;
+        const savedLoc =
+          typeof window !== "undefined"
+            ? localStorage.getItem("dms_location_id") || localStorage.getItem("current_location_id")
+            : null;
+        if (savedLoc && locationsList.some((l) => l.id === savedLoc)) {
+          activeLocId = savedLoc;
+        }
       } catch (e) {}
     }
 
-    if (!activeLocId) {
+    if (!activeLocId || (locationsList.length > 0 && !locationsList.some((l) => l.id === activeLocId))) {
       const outletsRes = await axios.get("/api/outlets").catch(() => null);
-      activeLocId = outletsRes?.data?.data?.locations?.[0]?.id || outletsRes?.data?.data?.outlets?.[0]?.id || "";
-      if (activeLocId) setSelectedLocationId(activeLocId);
+      const validLocations: { id: string; name: string }[] =
+        outletsRes?.data?.data?.locations ||
+        outletsRes?.data?.data?.outlets ||
+        [];
+      activeLocId = validLocations[0]?.id || "";
+      if (activeLocId) {
+        setSelectedLocationId(activeLocId);
+        try {
+          localStorage.setItem("dms_location_id", activeLocId);
+        } catch (e) {}
+      }
     }
 
     if (!activeLocId) {
-      setErrorMsg("Clinic location could not be determined. Please refresh and try again.");
+      setErrorMsg("Clinic location could not be determined. Please configure a clinic outlet first.");
       return;
     }
 
@@ -500,7 +535,7 @@ export default function DoctorScheduleEditor({
         if (onSaveSuccess) onSaveSuccess();
 
         // Immediately reload from server to ensure state consistency
-        await loadDoctorSchedule(selectedDoctorId);
+        await loadDoctorSchedule(selectedDoctorId, activeLocId);
 
         setTimeout(() => {
           if (isMountedRef.current) setSuccessMsg(null);
@@ -551,7 +586,7 @@ export default function DoctorScheduleEditor({
         </div>
       )}
 
-      {/* Header controls (Doctor Selector + Buffer Time Button + Save button) */}
+      {/* Header controls (Location Selector + Doctor Selector + Buffer Time Button + Save button) */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#7da3b3]/15 text-[#345263]">
@@ -567,7 +602,34 @@ export default function DoctorScheduleEditor({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-end sm:self-center">
+        <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+          {/* Location Selector (when multiple locations available) */}
+          {locationsList.length > 1 && (
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">
+              <MapPin className="h-3.5 w-3.5 text-slate-400" />
+              <select
+                value={selectedLocationId}
+                onChange={(e) => {
+                  const newLocId = e.target.value;
+                  setSelectedLocationId(newLocId);
+                  try {
+                    localStorage.setItem("dms_location_id", newLocId);
+                  } catch (err) {}
+                  if (selectedDoctorId) {
+                    loadDoctorSchedule(selectedDoctorId, newLocId);
+                  }
+                }}
+                className="bg-transparent font-medium text-slate-700 outline-none cursor-pointer"
+              >
+                {locationsList.map((loc) => (
+                  <option key={loc.id} value={loc.id}>
+                    {loc.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {showDoctorSelector && doctorsList.length > 0 && (
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs">
               <User className="h-3.5 w-3.5 text-slate-400" />

@@ -11,6 +11,7 @@ import {
   isNull,
   sql,
   desc,
+  ilike,
 } from "drizzle-orm";
 import { db } from "@/db";
 
@@ -269,7 +270,7 @@ async function findAvailableDoctor(
       const conflict = await db.query.appointments.findFirst({
         where: and(
           eq(appointments.providerId, doc.id),
-          ne(appointments.status, "cancelled"),
+          inArray(appointments.status, ["confirmed", "checked_in"]),
           lt(appointments.startTime, new Date(endTime.getTime() + DEFAULT_BUFFER_MINUTES * 60_000)),
           gt(appointments.endTime, new Date(startTime.getTime() - DEFAULT_BUFFER_MINUTES * 60_000)),
         ),
@@ -307,7 +308,7 @@ async function findAvailableDoctor(
     const conflict = await db.query.appointments.findFirst({
       where: and(
         eq(appointments.providerId, userId),
-        ne(appointments.status, "cancelled"),
+        inArray(appointments.status, ["confirmed", "checked_in"]),
         lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
         gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
       ),
@@ -336,6 +337,10 @@ export async function bookAppointment(
     }
     const data = parsed.data;
 
+    const trimmedName = data.fullName.trim();
+    const [firstName, ...rest] = trimmedName.split(" ");
+    const lastName = rest.join(" ") || "-";
+
     const identifierMatch =
       data.email && data.email.trim() !== ""
         ? or(eq(patients.phone, data.phone), eq(patients.email, data.email))
@@ -343,7 +348,12 @@ export async function bookAppointment(
 
     const [existingPatient, treatment] = await Promise.all([
       db.query.patients.findFirst({
-        where: and(eq(patients.orgId, session.orgId), identifierMatch),
+        where: and(
+          eq(patients.orgId, session.orgId),
+          ilike(patients.firstName, firstName),
+          ilike(patients.lastName, lastName),
+          identifierMatch,
+        ),
       }),
       db.query.treatments.findFirst({
         where: eq(treatments.id, data.treatmentId),
@@ -440,7 +450,7 @@ export async function bookAppointment(
       const conflict = await tx.query.appointments.findFirst({
         where: and(
           eq(appointments.providerId, providerId),
-          ne(appointments.status, "cancelled"),
+          inArray(appointments.status, ["confirmed", "checked_in"]),
           lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
           gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
         ),
@@ -751,6 +761,7 @@ export async function updateAppointmentStatus(
       .select({
         id: appointments.id,
         currentStatus: appointments.status,
+        providerId: appointments.providerId,
         treatmentId: appointments.treatmentId,
         locationId: appointments.locationId,
         patientId: appointments.patientId,
@@ -759,6 +770,7 @@ export async function updateAppointmentStatus(
         treatmentName: treatments.name,
         treatmentPriceCents: treatments.priceCents,
         startTime: appointments.startTime,
+        endTime: appointments.endTime,
       })
       .from(appointments)
       .innerJoin(locations, eq(appointments.locationId, locations.id))
@@ -769,6 +781,32 @@ export async function updateAppointmentStatus(
 
     if (!existingAppointment) {
       return { success: false, error: "Appointment not found.", code: "NOT_FOUND" };
+    }
+
+    if (status === "confirmed" && existingAppointment.currentStatus === "requested") {
+      const docBufferMs = await getDoctorBufferMs(
+        existingAppointment.providerId,
+        existingAppointment.locationId,
+        existingAppointment.startTime.getDay(),
+      );
+
+      const conflict = await db.query.appointments.findFirst({
+        where: and(
+          eq(appointments.providerId, existingAppointment.providerId),
+          ne(appointments.id, appointmentId),
+          inArray(appointments.status, ["confirmed", "checked_in"]),
+          lt(appointments.startTime, new Date(existingAppointment.endTime.getTime() + docBufferMs)),
+          gt(appointments.endTime, new Date(existingAppointment.startTime.getTime() - docBufferMs)),
+        ),
+      });
+
+      if (conflict) {
+        return {
+          success: false,
+          error: "This dentist already has a confirmed booking during this time slot. Please reschedule or reassign the appointment before confirming.",
+          code: "DOUBLE_BOOKED",
+        };
+      }
     }
 
     const isNewCompletion = status === "completed" && existingAppointment.currentStatus !== "completed";
@@ -981,7 +1019,7 @@ export async function reassignAppointmentDoctor(
       where: and(
         eq(appointments.providerId, newProviderId),
         ne(appointments.id, appointmentId),
-        ne(appointments.status, "cancelled"),
+        inArray(appointments.status, ["confirmed", "checked_in"]),
         lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
         gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
       ),
@@ -1304,7 +1342,7 @@ export async function assignAppointmentToPatient(
     const conflict = await db.query.appointments.findFirst({
       where: and(
         eq(appointments.providerId, providerId),
-        ne(appointments.status, "cancelled"),
+        inArray(appointments.status, ["confirmed", "checked_in"]),
         lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
         gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
       ),
@@ -1485,7 +1523,7 @@ export async function updateAppointment(
         where: and(
           eq(appointments.providerId, providerId),
           ne(appointments.id, appointmentId),
-          ne(appointments.status, "cancelled"),
+          inArray(appointments.status, ["confirmed", "checked_in"]),
           lt(appointments.startTime, new Date(endTime.getTime() + docBufferMs)),
           gt(appointments.endTime, new Date(startTime.getTime() - docBufferMs)),
         ),

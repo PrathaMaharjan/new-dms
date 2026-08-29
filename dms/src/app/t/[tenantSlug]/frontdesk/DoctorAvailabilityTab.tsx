@@ -263,6 +263,7 @@ export default function DoctorAvailabilityTab() {
               const docAppts = Array.isArray(rawAppts)
                 ? rawAppts.filter((a: any) => {
                     if (a.providerId !== d.id) return false;
+                    if (a.status === "requested" || a.status === "cancelled" || a.status === "no_show") return false;
                     const aDate = a.startTime
                       ? new Date(a.startTime).toISOString().slice(0, 10)
                       : a.date || a.appointmentDate;
@@ -438,20 +439,38 @@ export default function DoctorAvailabilityTab() {
                         <span>Shift Timeline</span>
                         <span>{formatTime12h(doc.shiftEnd)}</span>
                       </div>
-                      <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                        {doc.segments.map((seg, i) => (
-                          <div
-                            key={i}
-                            className={`h-full ${seg.type === "free"
-                              ? "bg-emerald-400"
-                              : seg.type === "booked"
-                                ? "bg-sky-400"
-                                : "bg-amber-400"
-                              }`}
-                            style={{ width: `${100 / doc.segments.length}%` }}
-                            title={`${formatTime12h(seg.start)} - ${formatTime12h(seg.end)}: ${seg.type}`}
-                          />
-                        ))}
+                      <div className="flex h-2.5 w-full overflow-hidden rounded-full bg-slate-100 gap-[1px]">
+                        {(() => {
+                          const toMins = (t: string) => {
+                            const [h, m] = t.split(":").map(Number);
+                            return (h || 0) * 60 + (m || 0);
+                          };
+                          const shiftStartMins = doc.shiftStart ? toMins(doc.shiftStart) : 540;
+                          const shiftEndMins = doc.shiftEnd ? toMins(doc.shiftEnd) : 1020;
+                          const totalDuration = Math.max(shiftEndMins - shiftStartMins, 1);
+
+                          return doc.segments.map((seg, i) => {
+                            const segStartMins = toMins(seg.start);
+                            const segEndMins = toMins(seg.end);
+                            const segDuration = Math.max(segEndMins - segStartMins, 0);
+                            const widthPercent = (segDuration / totalDuration) * 100;
+
+                            return (
+                              <div
+                                key={i}
+                                className={`h-full transition-all ${
+                                  seg.type === "free"
+                                    ? "bg-emerald-400"
+                                    : seg.type === "booked"
+                                      ? "bg-sky-400 ring-1 ring-sky-500/30"
+                                      : "bg-amber-400"
+                                }`}
+                                style={{ width: `${widthPercent}%` }}
+                                title={`${formatTime12h(seg.start)} - ${formatTime12h(seg.end)}: ${seg.type.toUpperCase()} (${segDuration}m)`}
+                              />
+                            );
+                          });
+                        })()}
                       </div>
                     </div>
                   )}

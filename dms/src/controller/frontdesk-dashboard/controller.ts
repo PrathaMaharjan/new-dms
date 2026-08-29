@@ -212,20 +212,25 @@ export async function getFrontDeskAppointmentTrend(
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const dayNum = String(d.getDate()).padStart(2, "0");
+      const dateStr = `${year}-${month}-${dayNum}`;
       const dayName = d.toLocaleDateString("en-US", { weekday: "short" });
       days.push({
         label: dayName,
         day: dayName,
-        date: d.toISOString().slice(0, 10),
+        date: dateStr,
         count: 0,
       });
     }
 
-    const sevenDaysAgo = startOfDay(new Date(days[0].date));
+    const sevenDaysAgo = startOfDay(new Date(now));
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+
     const rows = await db
       .select({
-        date: sql<string>`to_char(${appointments.startTime}, 'YYYY-MM-DD')`,
-        count: sql<number>`count(*)::int`,
+        startTime: appointments.startTime,
       })
       .from(appointments)
       .where(
@@ -233,12 +238,21 @@ export async function getFrontDeskAppointmentTrend(
           eq(appointments.locationId, locationId),
           gte(appointments.startTime, sevenDaysAgo),
           lte(appointments.startTime, endOfDay(now)),
-          ne(appointments.status, "cancelled")
+          ne(appointments.status, "cancelled"),
+          ne(appointments.status, "requested"),
         )
-      )
-      .groupBy(sql`to_char(${appointments.startTime}, 'YYYY-MM-DD')`);
+      );
 
-    const countsByDate = new Map(rows.map((r) => [r.date, r.count]));
+    const countsByDate = new Map<string, number>();
+    for (const row of rows) {
+      const d = row.startTime instanceof Date ? row.startTime : new Date(row.startTime);
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const dayNum = String(d.getDate()).padStart(2, "0");
+      const dateStr = `${year}-${month}-${dayNum}`;
+      countsByDate.set(dateStr, (countsByDate.get(dateStr) || 0) + 1);
+    }
+
     const merged = days.map((d) => ({
       ...d,
       count: countsByDate.get(d.date) ?? 0,

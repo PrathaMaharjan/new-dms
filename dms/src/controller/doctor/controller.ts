@@ -895,6 +895,20 @@ export async function updateDoctorSchedule(
       return { success: false, error: "Doctor not found.", code: "NOT_FOUND" };
     }
 
+    const loc = await db.query.locations.findFirst({
+      where: and(
+        eq(locations.id, data.locationId),
+        eq(locations.orgId, session.orgId),
+      ),
+    });
+    if (!loc) {
+      return {
+        success: false,
+        error: "Selected clinic location is invalid or does not belong to this organization.",
+        code: "NOT_FOUND",
+      };
+    }
+
     return await replaceSchedule(doctorId, data);
   } catch (err) {
     if (err instanceof SessionError) {
@@ -1057,9 +1071,10 @@ export async function getAllDoctorsScheduleTimeline(
       }
     }
 
-    // Fetch bookings
-    const dayStart = new Date(`${activeDate}T00:00:00`);
-    const dayEnd = new Date(`${activeDate}T23:59:59`);
+    // Fetch bookings with ±24h buffer to prevent timezone boundary clipping
+    const targetDate = new Date(`${activeDate}T12:00:00`);
+    const dayStart = new Date(targetDate.getTime() - 24 * 60 * 60 * 1000);
+    const dayEnd = new Date(targetDate.getTime() + 24 * 60 * 60 * 1000);
     const allBookings = await db
       .select({
         providerId: appointments.providerId,
@@ -1070,7 +1085,7 @@ export async function getAllDoctorsScheduleTimeline(
       .where(
         and(
           inArray(appointments.providerId, doctorIds),
-          ne(appointments.status, "cancelled"),
+          inArray(appointments.status, ["confirmed", "checked_in", "completed"]),
           gte(appointments.startTime, dayStart),
           lte(appointments.startTime, dayEnd),
         ),
@@ -1081,9 +1096,19 @@ export async function getAllDoctorsScheduleTimeline(
       { startTime: Date; endTime: Date }[]
     >();
     for (const b of allBookings) {
-      const list = bookingsByDoctor.get(b.providerId) ?? [];
-      list.push({ startTime: b.startTime, endTime: b.endTime });
-      bookingsByDoctor.set(b.providerId, list);
+      const bStart = b.startTime instanceof Date ? b.startTime : new Date(b.startTime);
+      const bYear = bStart.getFullYear();
+      const bMonth = String(bStart.getMonth() + 1).padStart(2, "0");
+      const bDay = String(bStart.getDate()).padStart(2, "0");
+      const bDateStr = `${bYear}-${bMonth}-${bDay}`;
+      if (bDateStr === activeDate) {
+        const list = bookingsByDoctor.get(b.providerId) ?? [];
+        list.push({
+          startTime: bStart,
+          endTime: b.endTime instanceof Date ? b.endTime : new Date(b.endTime),
+        });
+        bookingsByDoctor.set(b.providerId, list);
+      }
     }
 
     const toMins = (t: string) => {
@@ -1174,10 +1199,12 @@ export async function getAllDoctorsScheduleTimeline(
       // Bookings
       const bookings = bookingsByDoctor.get(doc.id) ?? [];
       for (const b of bookings) {
-        const bStart = b.startTime.getHours() * 60 + b.startTime.getMinutes();
+        const bStartObj = b.startTime instanceof Date ? b.startTime : new Date(b.startTime);
+        const bEndObj = b.endTime instanceof Date ? b.endTime : new Date(b.endTime);
+        const bStart = bStartObj.getHours() * 60 + bStartObj.getMinutes();
         const bEnd =
-          b.endTime.getHours() * 60 +
-          b.endTime.getMinutes() +
+          bEndObj.getHours() * 60 +
+          bEndObj.getMinutes() +
           docBufferMinutes;
         if (bStart < shiftEndMins && bEnd > shiftStartMins) {
           busyList.push({
@@ -1205,13 +1232,18 @@ export async function getAllDoctorsScheduleTimeline(
             end: toStr(busy.startMins),
             type: "free",
           });
-        }
-        segments.push({
-          start: toStr(busy.startMins),
-          end: toStr(busy.endMins),
-          type: busy.type,
-        });
-        if (busy.endMins > cursor) {
+          segments.push({
+            start: toStr(busy.startMins),
+            end: toStr(busy.endMins),
+            type: busy.type,
+          });
+          cursor = busy.endMins;
+        } else if (busy.endMins > cursor) {
+          segments.push({
+            start: toStr(cursor),
+            end: toStr(busy.endMins),
+            type: busy.type,
+          });
           cursor = busy.endMins;
         }
       }

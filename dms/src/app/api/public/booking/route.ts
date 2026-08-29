@@ -188,8 +188,14 @@ export async function POST(request: NextRequest) {
         ? or(eq(patients.phone, data.phone), eq(patients.email, data.email))
         : eq(patients.phone, data.phone);
 
+    // Look for an existing patient matching the organization, name, and contact details
     let patient = await db.query.patients.findFirst({
-      where: and(eq(patients.orgId, location.orgId), identifierMatch),
+      where: and(
+        eq(patients.orgId, location.orgId),
+        ilike(patients.firstName, firstName),
+        ilike(patients.lastName, lastName),
+        identifierMatch,
+      ),
     });
 
     if (!patient) {
@@ -205,21 +211,6 @@ export async function POST(request: NextRequest) {
         })
         .returning();
       patient = newPatient;
-    } else {
-      // Keep patient profile aligned with latest public booking details
-      // so Pending Review displays the submitted name/contact.
-      const [updatedPatient] = await db
-        .update(patients)
-        .set({
-          firstName,
-          lastName,
-          phone: data.phone,
-          email: data.email || patient.email || null,
-          locationId: patient.locationId || location.id,
-        })
-        .where(eq(patients.id, patient.id))
-        .returning();
-      patient = updatedPatient || patient;
     }
 
     // 5. Parse Start Time & End Time
