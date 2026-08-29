@@ -41,6 +41,7 @@ export type VisitReportData = {
   clinicAddress: string | null;
   clinicPhone: string | null;
   clinicEmail: string | null;
+  clinicLogoUrl: string | null; 
 };
 
 export type GetVisitReportDataResult =
@@ -95,6 +96,7 @@ export async function getVisitReportData(patientId: string, appointmentId: strin
         clinicAddress: locations.address,
         clinicPhone: locations.phone,
         clinicEmail: locations.email,
+        clinicLogoUrl: organizations.photoUrl, // ADDED - this was the actual missing piece
       })
       .from(appointments)
       .innerJoin(patients, eq(appointments.patientId, patients.id))
@@ -204,7 +206,8 @@ export async function sendVisitReport(patientId: string, input: unknown): Promis
     if (!reportResult.data.patientEmail) {
       return { success: false, error: "This patient has no email on file.", code: "VALIDATION" };
     }
-        const pdfBuffer = await generateVisitReportPdf(reportResult.data);
+
+    const pdfBuffer = await generateVisitReportPdf(reportResult.data);
     await sendPatientReportEmail(
       reportResult.data.patientEmail,
       reportResult.data.patientName,

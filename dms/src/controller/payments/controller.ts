@@ -4,6 +4,7 @@ import {
   commissionExperienceTiers,
   doctorCommissions,
   ledgerEntries,
+  locations,
   patients,
   providerProfiles,
   treatmentCommissionRates,
@@ -27,6 +28,18 @@ async function recordDoctorCommission(
     return;
   }
 
+  // ADDED - need the org this appointment actually belongs to, since
+  // tiers/rates are scoped per-org and appointments have no orgId
+  // column directly (same reasoning used throughout this project -
+  // reach org via locations).
+  const location = await tx.query.locations.findFirst({
+    where: eq(locations.id, appointment.locationId),
+  });
+  if (!location) {
+    console.log(`[commission] SKIPPED - location not found for appointment ${appointment.id}`);
+    return;
+  }
+
   const doctorProfile = await tx.query.providerProfiles.findFirst({
     where: eq(providerProfiles.userId, appointment.providerId),
   });
@@ -34,6 +47,7 @@ async function recordDoctorCommission(
 
   const tier = await tx.query.commissionExperienceTiers.findFirst({
     where: and(
+      eq(commissionExperienceTiers.orgId, location.orgId), // ADDED - the actual missing filter
       lte(commissionExperienceTiers.minYears, years),
       or(
         isNull(commissionExperienceTiers.maxYears),
@@ -43,7 +57,7 @@ async function recordDoctorCommission(
   });
   if (!tier) {
     console.log(
-      `[commission] SKIPPED - no matching experience tier for doctor ${appointment.providerId} (${years} years). Charge ${charge.id}, appointment ${appointment.id}.`
+      `[commission] SKIPPED - no matching experience tier for doctor ${appointment.providerId} (${years} years) in org ${location.orgId}. Charge ${charge.id}, appointment ${appointment.id}.`
     );
     return;
   }
@@ -61,9 +75,7 @@ async function recordDoctorCommission(
     return;
   }
 
-  const commissionAmountCents = Math.round(
-    (charge.amountCents * rate.commissionPercent) / 100,
-  );
+  const commissionAmountCents = Math.round((charge.amountCents * rate.commissionPercent) / 100);
 
   await tx.insert(doctorCommissions).values({
     doctorId: appointment.providerId,
@@ -176,6 +188,7 @@ export async function addLedgerEntry(
 
     const signedAmount =
       data.type === "charge" ? data.amountCents : -data.amountCents;
+      console.log(session.orgId)
 
     const entryId = await db.transaction(async (tx) => {
       const [entry] = await tx
