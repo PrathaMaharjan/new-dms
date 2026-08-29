@@ -47,7 +47,7 @@ async function recordDoctorCommission(
 
   const tier = await tx.query.commissionExperienceTiers.findFirst({
     where: and(
-      eq(commissionExperienceTiers.orgId, location.orgId), // ADDED - the actual missing filter
+      eq(commissionExperienceTiers.orgId, location.orgId), 
       lte(commissionExperienceTiers.minYears, years),
       or(
         isNull(commissionExperienceTiers.maxYears),
@@ -55,6 +55,7 @@ async function recordDoctorCommission(
       ),
     ),
   });
+  console.log(tier?.name)
   if (!tier) {
     console.log(
       `[commission] SKIPPED - no matching experience tier for doctor ${appointment.providerId} (${years} years) in org ${location.orgId}. Charge ${charge.id}, appointment ${appointment.id}.`
@@ -74,8 +75,10 @@ async function recordDoctorCommission(
     );
     return;
   }
+  // console.log(charge.amountCents)
+  // console.log(rate.commissionPercent)
 
-  const commissionAmountCents = Math.round((charge.amountCents * rate.commissionPercent) / 100);
+ const commissionAmountCents = Math.round((charge.amountCents * rate.commissionPercent) / 100 / 100);
 
   await tx.insert(doctorCommissions).values({
     doctorId: appointment.providerId,
@@ -84,7 +87,7 @@ async function recordDoctorCommission(
     treatmentId: appointment.treatmentId,
     tierId: tier.id,
     commissionPercent: rate.commissionPercent,
-    chargeAmountCents: charge.amountCents,
+    chargeAmountCents: Math.round(charge.amountCents/100),
     commissionAmountCents,
   });
 
@@ -188,7 +191,8 @@ export async function addLedgerEntry(
 
     const signedAmount =
       data.type === "charge" ? data.amountCents : -data.amountCents;
-      console.log(session.orgId)
+      // console.log(session.orgId)
+      // console.log(data)
 
     const entryId = await db.transaction(async (tx) => {
       const [entry] = await tx

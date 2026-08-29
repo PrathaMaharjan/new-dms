@@ -236,9 +236,9 @@ export default function BillingPage() {
       try {
         let locId = "";
         try {
-          const savedLoc = localStorage.getItem("locationId")
+          const savedLoc = localStorage.getItem("locationId");
           // localStorage.getItem("dms_location_id") ||
-            // localStorage.getItem("current_location_id") 
+          // localStorage.getItem("current_location_id")
 
           if (savedLoc) locId = savedLoc;
         } catch (e) {}
@@ -441,11 +441,6 @@ export default function BillingPage() {
     setEntryError(null);
     setEntryModalOpen(true);
   }
-
-  // CHANGED - the moment type becomes "payment," the Amount field
-  // auto-fills with this patient's real outstanding balance, read
-  // directly from `rows` (already loaded, no new API call needed).
-  // Still a normal editable input afterward, for partial payments.
   function update<K extends keyof EntryFormState>(
     key: K,
     value: EntryFormState[K],
@@ -474,7 +469,6 @@ export default function BillingPage() {
     const activeLocId = locationId || locations[0]?.id || "outlet-1";
     const amountNumber = Number(entryForm.amount) || 0;
     const amountCents = Math.round(amountNumber * 100);
-
     setSubmittingEntry(true);
     try {
       const { data: responseBody } = await axios.post(
