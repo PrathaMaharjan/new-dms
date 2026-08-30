@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { appointmentTypes, locations, organizations, treatments } from "@/db/schema";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { appointmentTypes, locations, organizations, treatments, doctorTreatments, users, providerProfiles } from "@/db/schema";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getImageUrl } from "@/lib/cloudinary/storage";
 import { toSemanticHtml, toCleanPlainText } from "@/lib/formatters/richText";
+import { ensureDoctorTreatmentsTable } from "@/controller/doctor/controller";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -119,15 +120,69 @@ export async function GET(request: NextRequest) {
       ).values()
     );
 
+    // Fetch doctors assigned to each treatment
+    const treatmentIds = uniqueServices.map((t) => t.id);
+    const treatmentDoctorsMap = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        specialization?: string | null;
+        photoUrl?: string | null;
+      }[]
+    >();
+
+    if (treatmentIds.length > 0) {
+      await ensureDoctorTreatmentsTable();
+      const tdList = await db
+        .select({
+          treatmentId: doctorTreatments.treatmentId,
+          doctorId: users.id,
+          doctorName: users.name,
+          specialization: providerProfiles.specialization,
+          photoUrl: providerProfiles.photoUrl,
+        })
+        .from(doctorTreatments)
+        .innerJoin(users, eq(doctorTreatments.doctorId, users.id))
+        .leftJoin(providerProfiles, eq(providerProfiles.userId, users.id))
+        .where(
+          and(
+            inArray(doctorTreatments.treatmentId, treatmentIds),
+            isNull(users.deletedAt)
+          )
+        );
+
+      for (const row of tdList) {
+        const existing = treatmentDoctorsMap.get(row.treatmentId) || [];
+        existing.push({
+          id: row.doctorId,
+          name: row.doctorName,
+          specialization: row.specialization || null,
+          photoUrl: row.photoUrl ? getImageUrl(row.photoUrl, { width: 400, height: 400 }) : null,
+        });
+        treatmentDoctorsMap.set(row.treatmentId, existing);
+      }
+    }
+
+    const enrichedTreatments = uniqueServices.map((s) => {
+      const doctors = treatmentDoctorsMap.get(s.id) || [];
+      return {
+        ...s,
+        doctorIds: doctors.map((d) => d.id),
+        doctors,
+      };
+    });
+
     return NextResponse.json(
       {
         success: true,
         statusCode: 200,
-        data: { treatments: uniqueServices },
+        data: { treatments: enrichedTreatments },
       },
       { headers: corsHeaders }
     );
   } catch (error: unknown) {
+    console.error("Failed to load public treatments:", error);
     return NextResponse.json(
       { success: false, error: "Failed to load public treatments" },
       { status: 500, headers: corsHeaders }

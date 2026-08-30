@@ -2,6 +2,7 @@ import { db } from "@/db";
 import {
   appointments,
   appointmentTypes,
+  doctorTreatments,
   locations,
   organizations,
   patients,
@@ -42,6 +43,27 @@ export type DoctorErrorCode =
   | "NOT_FOUND"
   | "DUPLICATE"
   | "SERVER_ERROR";
+
+let hasEnsuredDoctorTreatmentsTable = false;
+export async function ensureDoctorTreatmentsTable() {
+  if (hasEnsuredDoctorTreatmentsTable) return;
+  try {
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS doctor_treatments (
+        id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        doctor_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        treatment_id uuid NOT NULL REFERENCES treatments(id) ON DELETE CASCADE,
+        created_at timestamp DEFAULT now() NOT NULL,
+        CONSTRAINT doctor_treatments_doctor_treatment_unique UNIQUE (doctor_id, treatment_id)
+      );
+      CREATE INDEX IF NOT EXISTS doctor_treatments_doctor_id_idx ON doctor_treatments(doctor_id);
+      CREATE INDEX IF NOT EXISTS doctor_treatments_treatment_id_idx ON doctor_treatments(treatment_id);
+    `);
+    hasEnsuredDoctorTreatmentsTable = true;
+  } catch (e) {
+    // Ignore if already created or race condition
+  }
+}
 
 function getPgErrorCode(err: unknown): string | undefined {
   return (
@@ -85,6 +107,7 @@ export async function createDoctor(
 ): Promise<CreateDoctorResult> {
   try {
     const session = await requireSession();
+    await ensureDoctorTreatmentsTable();
 
     const parsed = createDoctorSchema.safeParse(input);
     if (!parsed.success) {
@@ -156,6 +179,15 @@ export async function createDoctor(
         address: data.address,
         employmentType: data.employmentType,
       });
+
+      if (data.treatmentIds && data.treatmentIds.length > 0) {
+        await tx.insert(doctorTreatments).values(
+          data.treatmentIds.map((treatmentId) => ({
+            doctorId: user.id,
+            treatmentId,
+          })),
+        );
+      }
 
       return user;
     });
@@ -235,6 +267,8 @@ export type GetDoctorsResult =
         gender: string | null;
         address: string | null;
         patientsCheckedUp?: number;
+        treatmentIds?: string[];
+        treatments?: { id: string; name: string }[];
       }[];
       pagination: { total: number; limit: number; offset: number };
     }
@@ -248,6 +282,7 @@ export async function getDoctors(
 ): Promise<GetDoctorsResult> {
   try {
     const session = await requireSession();
+    await ensureDoctorTreatmentsTable();
 
     const limit = Math.min(
       Math.max(options?.limit ?? DEFAULT_LIMIT, 1),
@@ -302,30 +337,56 @@ export async function getDoctors(
     const total = countResult[0]?.count ?? 0;
 
     const doctorIds = results.map((d) => d.id);
-    const patientCounts = doctorIds.length
-      ? await db
-          .select({
-            providerId: appointments.providerId,
-            patientCount: sql<number>`count(distinct ${appointments.patientId})::int`,
-          })
-          .from(appointments)
-          .where(
-            and(
-              inArray(appointments.providerId, doctorIds),
-              eq(appointments.status, "completed"),
-            ),
-          )
-          .groupBy(appointments.providerId)
-      : [];
+    const [patientCounts, doctorTreatmentsList] = await Promise.all([
+      doctorIds.length
+        ? db
+            .select({
+              providerId: appointments.providerId,
+              patientCount: sql<number>`count(distinct ${appointments.patientId})::int`,
+            })
+            .from(appointments)
+            .where(
+              and(
+                inArray(appointments.providerId, doctorIds),
+                eq(appointments.status, "completed"),
+              ),
+            )
+            .groupBy(appointments.providerId)
+        : Promise.resolve([]),
+      doctorIds.length
+        ? db
+            .select({
+              doctorId: doctorTreatments.doctorId,
+              treatmentId: treatments.id,
+              treatmentName: treatments.name,
+            })
+            .from(doctorTreatments)
+            .innerJoin(treatments, eq(doctorTreatments.treatmentId, treatments.id))
+            .where(inArray(doctorTreatments.doctorId, doctorIds))
+        : Promise.resolve([]),
+    ]);
+
     const countsByDoctor = new Map(
       patientCounts.map((p) => [p.providerId, p.patientCount]),
     );
 
-    const doctors = results.map((d) => ({
-      ...d,
-      photoUrl: imagePresets.thumbnail(d.photoUrl),
-      patientsCheckedUp: countsByDoctor.get(d.id) ?? 0,
-    }));
+    const treatmentsByDoctor = new Map<string, { id: string; name: string }[]>();
+    doctorTreatmentsList.forEach((dt) => {
+      const list = treatmentsByDoctor.get(dt.doctorId) || [];
+      list.push({ id: dt.treatmentId, name: dt.treatmentName });
+      treatmentsByDoctor.set(dt.doctorId, list);
+    });
+
+    const doctors = results.map((d) => {
+      const docTreatments = treatmentsByDoctor.get(d.id) || [];
+      return {
+        ...d,
+        photoUrl: imagePresets.thumbnail(d.photoUrl),
+        patientsCheckedUp: countsByDoctor.get(d.id) ?? 0,
+        treatments: docTreatments,
+        treatmentIds: docTreatments.map((t) => t.id),
+      };
+    });
 
     return { success: true, doctors, pagination: { total, limit, offset } };
   } catch (err) {
@@ -357,6 +418,7 @@ export type UpdateDoctorResult =
 export async function updateDoctor(doctorId: string, input: unknown): Promise<UpdateDoctorResult> {
   try {
     const session = await requireSession();
+    await ensureDoctorTreatmentsTable();
 
     const parsed = updateDoctorSchema.safeParse(input);
     if (!parsed.success) {
@@ -411,6 +473,20 @@ export async function updateDoctor(doctorId: string, input: unknown): Promise<Up
           userId: doctorId,
           ...profileUpdates,
         });
+      }
+
+      if (data.treatmentIds !== undefined) {
+        await tx
+          .delete(doctorTreatments)
+          .where(eq(doctorTreatments.doctorId, doctorId));
+        if (data.treatmentIds.length > 0) {
+          await tx.insert(doctorTreatments).values(
+            data.treatmentIds.map((treatmentId) => ({
+              doctorId,
+              treatmentId,
+            })),
+          );
+        }
       }
 
       return user;
@@ -694,6 +770,14 @@ export type GetDoctorResult =
           isOnLeave: boolean;
           locationId: string;
         }[];
+        treatments?: {
+          id: string;
+          name: string;
+          category: string;
+          durationMinutes: number;
+          priceCents: number;
+        }[];
+        treatmentIds?: string[];
       };
     }
   | { success: false; error: string; code: DoctorErrorCode };
@@ -701,8 +785,9 @@ export type GetDoctorResult =
 export async function getDoctor(doctorId: string): Promise<GetDoctorResult> {
   try {
     const session = await requireSession();
+    await ensureDoctorTreatmentsTable();
 
-    const [record, schedule] = await Promise.all([
+    const [record, schedule, doctorTreatmentRows] = await Promise.all([
       db
         .select({
           id: users.id,
@@ -746,6 +831,17 @@ export async function getDoctor(doctorId: string): Promise<GetDoctorResult> {
         .from(providerSchedules)
         .where(eq(providerSchedules.userId, doctorId))
         .orderBy(providerSchedules.dayOfWeek, desc(providerSchedules.createdAt)),
+      db
+        .select({
+          id: treatments.id,
+          name: treatments.name,
+          category: treatments.category,
+          durationMinutes: treatments.durationMinutes,
+          priceCents: treatments.priceCents,
+        })
+        .from(doctorTreatments)
+        .innerJoin(treatments, eq(doctorTreatments.treatmentId, treatments.id))
+        .where(eq(doctorTreatments.doctorId, doctorId)),
     ]);
 
     const found = record[0];
@@ -753,12 +849,17 @@ export async function getDoctor(doctorId: string): Promise<GetDoctorResult> {
       return { success: false, error: "Doctor not found.", code: "NOT_FOUND" };
     }
 
+    const assignedTreatments = doctorTreatmentRows || [];
+    const treatmentIds = assignedTreatments.map((t) => t.id);
+
     return {
       success: true,
       doctor: {
         ...found,
         photoUrl: imagePresets.full(found.photoUrl),
         schedule,
+        treatments: assignedTreatments,
+        treatmentIds,
       },
     };
   } catch (err) {

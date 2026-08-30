@@ -47,7 +47,7 @@ async function recordDoctorCommission(
 
   const tier = await tx.query.commissionExperienceTiers.findFirst({
     where: and(
-      eq(commissionExperienceTiers.orgId, location.orgId), 
+      eq(commissionExperienceTiers.orgId, location.orgId),
       lte(commissionExperienceTiers.minYears, years),
       or(
         isNull(commissionExperienceTiers.maxYears),
@@ -78,7 +78,7 @@ async function recordDoctorCommission(
   // console.log(charge.amountCents)
   // console.log(rate.commissionPercent)
 
- const commissionAmountCents = Math.round((charge.amountCents * rate.commissionPercent) / 100 / 100);
+  const commissionAmountCents = Math.round((charge.amountCents * rate.commissionPercent) / 100 / 100);
 
   await tx.insert(doctorCommissions).values({
     doctorId: appointment.providerId,
@@ -87,7 +87,7 @@ async function recordDoctorCommission(
     treatmentId: appointment.treatmentId,
     tierId: tier.id,
     commissionPercent: rate.commissionPercent,
-    chargeAmountCents: Math.round(charge.amountCents/100),
+    chargeAmountCents: Math.round(charge.amountCents / 100),
     commissionAmountCents,
   });
 
@@ -191,8 +191,8 @@ export async function addLedgerEntry(
 
     const signedAmount =
       data.type === "charge" ? data.amountCents : -data.amountCents;
-      // console.log(session.orgId)
-      // console.log(data)
+    // console.log(session.orgId)
+    // console.log(data)
 
     const entryId = await db.transaction(async (tx) => {
       const [entry] = await tx
@@ -205,7 +205,7 @@ export async function addLedgerEntry(
           type: data.type,
           amountCents: signedAmount,
           paymentMethod: data.type === "payment" ? data.paymentMethod : null,
-       
+
           status: data.type === "charge" ? "due" : "settled",
         })
         .returning();
@@ -239,22 +239,22 @@ export async function addLedgerEntry(
 // get patent ledger history
 export type LedgerHistoryResult =
   | {
-      success: true;
-      summary: {
-        totalChargedCents: number;
-        totalPaidCents: number;
-        balanceDueCents: number;
-      };
-      entries: {
-        id: string;
-        type: string;
-        amountCents: number;
-        paymentMethod: string | null;
-        // note: string | null;
-        appointmentTreatmentName: string | null;
-        createdAt: Date;
-      }[];
-    }
+    success: true;
+    summary: {
+      totalChargedCents: number;
+      totalPaidCents: number;
+      balanceDueCents: number;
+    };
+    entries: {
+      id: string;
+      type: string;
+      amountCents: number;
+      paymentMethod: string | null;
+      // note: string | null;
+      appointmentTreatmentName: string | null;
+      createdAt: Date;
+    }[];
+  }
   | { success: false; error: string; code: LedgerErrorCode };
 
 export async function getLedgerHistory(
@@ -335,14 +335,14 @@ export type BillingStatsErrorCode = "UNAUTHORIZED" | "SERVER_ERROR";
 
 export type BillingStatsResult =
   | {
-      success: true;
-      stats: {
-        totalChargedCents: number;
-        totalCollectedCents: number;
-        outstandingDuesCents: number;
-        patientsWithDuesCount: number;
-      };
-    }
+    success: true;
+    stats: {
+      totalChargedCents: number;
+      totalCollectedCents: number;
+      outstandingDuesCents: number;
+      patientsWithDuesCount: number;
+    };
+  }
   | { success: false; error: string; code: BillingStatsErrorCode };
 
 export async function getBillingStats(
@@ -430,10 +430,10 @@ export type BillingPatientRow = {
 };
 export type BillingPatientsResult =
   | {
-      success: true;
-      patients: BillingPatientRow[];
-      pagination: { total: number; limit: number; offset: number };
-    }
+    success: true;
+    patients: BillingPatientRow[];
+    pagination: { total: number; limit: number; offset: number };
+  }
   | { success: false; error: string; code: BillingPatientsErrorCode };
 
 const DEFAULT_LIMIT = 20;
@@ -495,15 +495,15 @@ export async function getBillingPatients(
     const patientIds = rows.map((r) => r.patientId);
     const lastAppointmentRows = patientIds.length
       ? await db
-          .selectDistinctOn([appointments.patientId], {
-            patientId: appointments.patientId,
-            treatmentName: treatments.name,
-            treatmentCostCents: treatments.priceCents,
-          })
-          .from(appointments)
-          .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
-          .where(and(inArray(appointments.patientId, patientIds), ne(appointments.status, "cancelled")))
-          .orderBy(appointments.patientId, desc(appointments.startTime))
+        .selectDistinctOn([appointments.patientId], {
+          patientId: appointments.patientId,
+          treatmentName: treatments.name,
+          treatmentCostCents: treatments.priceCents,
+        })
+        .from(appointments)
+        .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+        .where(and(inArray(appointments.patientId, patientIds), ne(appointments.status, "cancelled")))
+        .orderBy(appointments.patientId, desc(appointments.startTime))
       : [];
 
     const treatmentByPatient = new Map(

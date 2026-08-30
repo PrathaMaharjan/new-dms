@@ -41,6 +41,7 @@ import {
   Lock,
   Eye,
   EyeOff,
+  Check,
 } from "lucide-react";
 import { uploadConfig, getImageUrl } from "@/lib/cloudinary/storage";
 import { RichFormattedTextarea } from "@/components/treatments/RichFormattedTextarea";
@@ -98,6 +99,14 @@ const AVATAR_COLORS = [
   "bg-teal-100 text-teal-700",
 ];
 
+export type TreatmentOption = {
+  id: string;
+  name: string;
+  category?: string;
+  durationMinutes?: number;
+  priceCents?: number;
+};
+
 type Doctor = {
   id: string;
   name: string;
@@ -119,6 +128,8 @@ type Doctor = {
   location?: string;
   education?: string[];
   experienceNotes?: string[];
+  treatmentIds?: string[];
+  treatments?: TreatmentOption[];
 };
 
 const EMPTY_FORM = {
@@ -138,6 +149,7 @@ const EMPTY_FORM = {
   experienceNotes: "",
   password: "",
   confirmPassword: "",
+  treatmentIds: [] as string[],
 };
 
 
@@ -176,6 +188,7 @@ function doctorToForm(doc: Doctor): FormState {
     experienceNotes: (doc.experienceNotes ?? []).map((e) => htmlToCleanMarkdown(e)).join("\n"),
     password: "",
     confirmPassword: "",
+    treatmentIds: doc.treatmentIds || [],
   };
 }
 
@@ -206,6 +219,9 @@ export default function DoctorsPage() {
   const storageKey = tenantSlug ? `dms_${tenantSlug}_custom_specializations` : "dms_custom_specializations";
 
   const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [availableTreatments, setAvailableTreatments] = useState<TreatmentOption[]>([]);
+  const [treatmentSearch, setTreatmentSearch] = useState("");
+  const [treatmentCategoryFilter, setTreatmentCategoryFilter] = useState("All");
   const [locationId, setLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -281,15 +297,27 @@ export default function DoctorsPage() {
     try {
       setLoading(true);
 
-      const [servicesRes, outletsRes] = await Promise.all([
+      const [servicesRes, outletsRes, treatmentsRes] = await Promise.all([
         axios.get("/api/services").catch(() => null),
         axios.get("/api/outlets").catch(() => null),
+        axios.get("/api/treatment").catch(() => null),
       ]);
 
       let locId: string | null = null;
       if (servicesRes?.data?.success && servicesRes.data.data.services?.length > 0) {
         locId = servicesRes.data.data.services[0].locationId;
         setLocationId(locId);
+      }
+
+      if (treatmentsRes?.data?.success && Array.isArray(treatmentsRes.data.data?.treatments)) {
+        const mappedTreatments: TreatmentOption[] = treatmentsRes.data.data.treatments.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          category: t.category,
+          durationMinutes: t.durationMinutes,
+          priceCents: t.priceCents,
+        }));
+        setAvailableTreatments(mappedTreatments);
       }
 
       if (outletsRes?.data?.success && outletsRes.data.data?.locations) {
@@ -361,6 +389,8 @@ export default function DoctorsPage() {
               address: pickField(d, "address", "location", "doctorAddress", "residenceAddress"),
               education: d.education ? [d.education] : [],
               experienceNotes: d.bio ? [d.bio] : [],
+              treatmentIds: d.treatmentIds || (d.treatments ? d.treatments.map((t: any) => t.id) : []),
+              treatments: d.treatments || [],
             });
           }
         });
@@ -436,6 +466,8 @@ export default function DoctorsPage() {
           gender: fullDoc.gender || doc.gender,
           dob: dobVal,
           address: pickField(fullDoc, "address", "location", "doctorAddress", "residenceAddress") || doc.address,
+          treatments: fullDoc.treatments || doc.treatments || [],
+          treatmentIds: fullDoc.treatmentIds || doc.treatmentIds || [],
         };
         setSelectedDoctor((prev) => (prev && prev.id === doc.id ? mergedDoc : prev));
         setDoctors((prev) => prev.map((d) => (d.id === doc.id ? mergedDoc : d)));
@@ -451,6 +483,8 @@ export default function DoctorsPage() {
     setModalMode("add");
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setTreatmentSearch("");
+    setTreatmentCategoryFilter("All");
     setImageFile(null);
     setImagePreview(null);
     setShowPassword(false);
@@ -463,6 +497,8 @@ export default function DoctorsPage() {
     setModalMode("edit");
     setEditingId(doc.id);
     setForm(doctorToForm(doc));
+    setTreatmentSearch("");
+    setTreatmentCategoryFilter("All");
     setImageFile(null);
     setImagePreview(doc.imageUrl || null);
     setShowPassword(false);
@@ -491,6 +527,8 @@ export default function DoctorsPage() {
           gender: fullDoc.gender || doc.gender,
           dob: dobVal,
           address: pickField(fullDoc, "address", "location", "doctorAddress", "residenceAddress") || doc.address,
+          treatments: fullDoc.treatments || doc.treatments || [],
+          treatmentIds: fullDoc.treatmentIds || doc.treatmentIds || [],
         };
         setForm(doctorToForm(mergedDoc));
         setImagePreview(mergedDoc.imageUrl || null);
@@ -560,7 +598,7 @@ export default function DoctorsPage() {
     return doctors.reduce((sum, d) => sum + d.rating, 0) / doctors.length;
   }, [doctors]);
 
-  function update<K extends keyof FormState>(key: K, value: string) {
+  function update<K extends keyof FormState>(key: K, value: any) {
     setForm((prev) => {
       const updated = { ...prev, [key]: value };
       if (key === "dob") {
@@ -569,6 +607,47 @@ export default function DoctorsPage() {
       return updated;
     });
   }
+
+  function toggleTreatment(treatmentId: string) {
+    setForm((prev) => {
+      const current = prev.treatmentIds || [];
+      const updated = current.includes(treatmentId)
+        ? current.filter((id) => id !== treatmentId)
+        : [...current, treatmentId];
+      return { ...prev, treatmentIds: updated };
+    });
+  }
+
+  function selectAllTreatments() {
+    setForm((prev) => ({
+      ...prev,
+      treatmentIds: availableTreatments.map((t) => t.id),
+    }));
+  }
+
+  function clearAllTreatments() {
+    setForm((prev) => ({
+      ...prev,
+      treatmentIds: [],
+    }));
+  }
+
+  const treatmentCategories = useMemo(() => {
+    const cats = new Set<string>();
+    availableTreatments.forEach((t) => {
+      if (t.category) cats.add(t.category);
+    });
+    return ["All", ...Array.from(cats)];
+  }, [availableTreatments]);
+
+  const modalFilteredTreatments = useMemo(() => {
+    const q = treatmentSearch.trim().toLowerCase();
+    return availableTreatments.filter((t) => {
+      const matchesSearch = !q || t.name.toLowerCase().includes(q) || (t.category && t.category.toLowerCase().includes(q));
+      const matchesCat = treatmentCategoryFilter === "All" || t.category === treatmentCategoryFilter;
+      return matchesSearch && matchesCat;
+    });
+  }, [availableTreatments, treatmentSearch, treatmentCategoryFilter]);
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -619,9 +698,10 @@ export default function DoctorsPage() {
       }
     }
 
-    const { education, experienceNotes, ...rest } = form;
+    const { education, experienceNotes, treatmentIds, ...rest } = form;
     const educationList = linesToArray(education);
     const experienceNotesList = linesToArray(experienceNotes);
+    const assignedTreatments = availableTreatments.filter((t) => (treatmentIds || []).includes(t.id));
 
     try {
       if (modalMode === "edit" && editingId) {
@@ -633,6 +713,7 @@ export default function DoctorsPage() {
           specialization: SPECIALIZATION_MAP_BACKEND[form.specialization] || form.specialization || "General Dentistry",
           qualification: form.qualification,
           yearsOfExperience: parseInt(form.experience, 10) || 0,
+          treatmentIds: treatmentIds || [],
         };
 
         if (uploadedPhotoKey) payload.photoKey = uploadedPhotoKey;
@@ -657,6 +738,8 @@ export default function DoctorsPage() {
                   imageUrl: updatedDocPhoto || d.imageUrl,
                   education: educationList,
                   experienceNotes: experienceNotesList,
+                  treatmentIds: treatmentIds || [],
+                  treatments: assignedTreatments,
                 }
                 : d
             )
@@ -670,6 +753,8 @@ export default function DoctorsPage() {
                 imageUrl: updatedDocPhoto || prev.imageUrl,
                 education: educationList,
                 experienceNotes: experienceNotesList,
+                treatmentIds: treatmentIds || [],
+                treatments: assignedTreatments,
               }
               : prev
           );
@@ -690,6 +775,7 @@ export default function DoctorsPage() {
           specialization: SPECIALIZATION_MAP_BACKEND[form.specialization] || form.specialization || "General Dentistry",
           yearsOfExperience: parseInt(form.experience, 10) || 0,
           employmentType: "full_time",
+          treatmentIds: treatmentIds || [],
         };
 
 
@@ -726,6 +812,8 @@ export default function DoctorsPage() {
               address: form.address,
               education: educationList,
               experienceNotes: experienceNotesList,
+              treatmentIds: treatmentIds || [],
+              treatments: assignedTreatments,
             },
             ...prev,
           ]);
@@ -967,6 +1055,13 @@ export default function DoctorsPage() {
                       <BriefcaseMedical className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
                       {doc.experience} years experience
                     </div>
+
+                    {doc.treatments && doc.treatments.length > 0 && (
+                      <div className="mt-2 flex items-center gap-1.5 text-[0.78rem] text-slate-500">
+                        <Activity className="h-3.5 w-3.5 text-[#3f6274]" strokeWidth={2} />
+                        <span>{doc.treatments.length} procedure{doc.treatments.length !== 1 ? "s" : ""}</span>
+                      </div>
+                    )}
 
                     <div className="mt-4 flex items-center justify-end border-t border-slate-900/5 pt-4">
                       <p className="text-[0.8rem] text-slate-500">{doc.patients} patients</p>
@@ -1295,6 +1390,143 @@ export default function DoctorsPage() {
                   />
                 </label>
 
+                {/* Doctor Treatments Section */}
+                <div className="rounded-2xl border border-slate-900/10 bg-slate-50/50 p-4">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+                    <div>
+                      <span className="flex items-center gap-1.5 text-[0.85rem] font-semibold text-slate-800">
+                        <Activity className="h-4 w-4 text-[#3f6274]" strokeWidth={2} />
+                        Treatments Doctor Can Perform
+                      </span>
+                      <p className="text-[0.75rem] text-slate-500 mt-0.5">
+                        Select all treatments and procedures this doctor is authorized to perform
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-[#7da3b3]/15 px-2.5 py-0.5 text-xs font-semibold text-[#345263]">
+                        {form.treatmentIds?.length || 0} selected
+                      </span>
+                      {availableTreatments.length > 0 && (
+                        <div className="flex items-center gap-1 text-xs">
+                          <button
+                            type="button"
+                            onClick={selectAllTreatments}
+                            className="rounded-lg bg-white border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                          >
+                            Select All
+                          </button>
+                          <button
+                            type="button"
+                            onClick={clearAllTreatments}
+                            className="rounded-lg bg-white border border-slate-200 px-2 py-1 font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {availableTreatments.length > 0 ? (
+                    <div className="space-y-3">
+                      {/* Search & Category Filter */}
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="relative flex-1">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Filter treatments..."
+                            value={treatmentSearch}
+                            onChange={(e) => setTreatmentSearch(e.target.value)}
+                            className="w-full rounded-xl border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-[#7da3b3] outline-none"
+                          />
+                        </div>
+                        {treatmentCategories.length > 2 && (
+                          <select
+                            value={treatmentCategoryFilter}
+                            onChange={(e) => setTreatmentCategoryFilter(e.target.value)}
+                            className="rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-[#7da3b3]"
+                          >
+                            {treatmentCategories.map((c) => (
+                              <option key={c} value={c}>
+                                {c === "All" ? "All Categories" : c}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+
+                      {/* Treatments Grid */}
+                      <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
+                        {modalFilteredTreatments.length === 0 ? (
+                          <p className="py-4 text-center text-xs text-slate-400">
+                            No treatments match your search.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {modalFilteredTreatments.map((t) => {
+                              const isChecked = form.treatmentIds?.includes(t.id);
+                              return (
+                                <div
+                                  key={t.id}
+                                  onClick={() => toggleTreatment(t.id)}
+                                  className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                                    isChecked
+                                      ? "bg-[#7da3b3]/10 border-[#7da3b3] shadow-xs"
+                                      : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/70"
+                                  }`}
+                                >
+                                  <div
+                                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                                      isChecked
+                                        ? "bg-[#3f6274] border-[#3f6274] text-white"
+                                        : "border-slate-300 bg-white"
+                                    }`}
+                                  >
+                                    {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold text-slate-800 truncate">
+                                      {t.name}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 text-[0.7rem] text-slate-500 mt-0.5">
+                                      {t.category && (
+                                        <span className="capitalize text-slate-500 font-medium">
+                                          {t.category}
+                                        </span>
+                                      )}
+                                      {t.durationMinutes && (
+                                        <>
+                                          <span className="text-slate-300">•</span>
+                                          <span>{t.durationMinutes}m</span>
+                                        </>
+                                      )}
+                                      {t.priceCents !== undefined && (
+                                        <>
+                                          <span className="text-slate-300">•</span>
+                                          <span className="font-semibold text-slate-700">
+                                            ${(t.priceCents / 100).toFixed(0)}
+                                          </span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4 text-center">
+                      <p className="text-xs text-slate-500">
+                        No treatments registered yet. You can add treatments in the Treatments section.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <RichFormattedTextarea
                   label="Education"
                   icon={<GraduationCap className="h-3.5 w-3.5" strokeWidth={2} />}
@@ -1550,8 +1782,42 @@ export default function DoctorsPage() {
                             Date of Birth
                           </p>
                           <p className="mt-1 font-medium text-slate-800">
-                            {formatDOB(selectedDoctor.dob || selectedDoctor.dateOfBirth)}
+                            {formatDob(selectedDoctor.dob || selectedDoctor.dateOfBirth) || "—"}
                           </p>
+                        </div>
+                      </div>
+
+                      {/* Doctor Treatments Section */}
+                      <div className="mt-6 border-t border-slate-900/5 pt-5">
+                        <div className="flex items-center justify-between">
+                          <p className="flex items-center gap-1.5 border-l-2 border-[#3f6274] pl-2 text-[0.9rem] font-semibold text-slate-900">
+                            Treatments & Procedures
+                          </p>
+                          <span className="rounded-full bg-[#7da3b3]/15 px-2.5 py-0.5 text-xs font-semibold text-[#345263]">
+                            {(selectedDoctor.treatments || []).length} Assigned
+                          </span>
+                        </div>
+                        <div className="mt-3">
+                          {selectedDoctor.treatments && selectedDoctor.treatments.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {selectedDoctor.treatments.map((t) => (
+                                <span
+                                  key={t.id}
+                                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-900/10 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800"
+                                >
+                                  <Activity className="h-3 w-3 text-[#7da3b3]" />
+                                  {t.name}
+                                  {t.category && (
+                                    <span className="text-[0.68rem] text-slate-500 font-semibold uppercase">
+                                      • {t.category}
+                                    </span>
+                                  )}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-500 italic">No specific treatments assigned to this doctor yet.</p>
+                          )}
                         </div>
                       </div>
 

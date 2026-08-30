@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Calendar,
   Clock,
@@ -34,20 +34,35 @@ const DEFAULT_DENTISTS = [
 const inputClass =
   "w-full rounded-xl border border-slate-900/10 bg-white px-3.5 py-2.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-sky-400";
 
+type TreatmentItem = {
+  id: string;
+  name: string;
+  doctorIds?: string[];
+  doctors?: { id: string; name: string }[];
+};
+
+type DoctorItem = {
+  id: string;
+  name: string;
+  treatmentIds?: string[];
+  treatments?: { id: string; name: string }[];
+};
+
 export default function BookingPage() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [services, setServices] = useState<string[]>(DEFAULT_SERVICES);
-  const [dentists, setDentists] = useState<string[]>(DEFAULT_DENTISTS);
+  const [allTreatments, setAllTreatments] = useState<TreatmentItem[]>([]);
+  const [allDoctors, setAllDoctors] = useState<DoctorItem[]>([]);
 
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
     service: DEFAULT_SERVICES[0],
-    dentist: DEFAULT_DENTISTS[0],
+    dentist: NO_PREFERENCE,
     date: "",
     time: "",
     notes: "",
@@ -64,6 +79,7 @@ export default function BookingPage() {
         if (servicesRes.status === "fulfilled" && servicesRes.value?.success) {
           const rawTreatments = servicesRes.value.data?.treatments || [];
           if (Array.isArray(rawTreatments) && rawTreatments.length > 0) {
+            setAllTreatments(rawTreatments);
             const names = rawTreatments.map((t: any) => t.name || t.title || t).filter(Boolean);
             if (names.length > 0) {
               setServices(names);
@@ -75,11 +91,7 @@ export default function BookingPage() {
         if (doctorsRes.status === "fulfilled" && doctorsRes.value?.success) {
           const rawDoctors = doctorsRes.value.data?.doctors || [];
           if (Array.isArray(rawDoctors) && rawDoctors.length > 0) {
-            const names = rawDoctors.map((d: any) => d.name || d.fullName || d).filter(Boolean);
-            if (names.length > 0) {
-              setDentists([NO_PREFERENCE, ...names]);
-              setForm((prev) => ({ ...prev, dentist: NO_PREFERENCE }));
-            }
+            setAllDoctors(rawDoctors);
           }
         }
       } catch (e) {
@@ -88,6 +100,36 @@ export default function BookingPage() {
     }
     loadData();
   }, []);
+
+  // Compute dentists who can perform the selected service
+  const availableDentists = useMemo(() => {
+    if (!form.service || allDoctors.length === 0) {
+      return [NO_PREFERENCE, ...DEFAULT_DENTISTS];
+    }
+    const matchedTreatment = allTreatments.find((t) => t.name === form.service);
+
+    // Filter doctors who can perform this treatment
+    const matchingDocs = allDoctors.filter((d) => {
+      const byId = matchedTreatment && d.treatmentIds?.includes(matchedTreatment.id);
+      const byName = d.treatments?.some((t) => t.name.toLowerCase() === form.service.toLowerCase());
+      const byTreatmentDocIds = matchedTreatment && matchedTreatment.doctorIds?.includes(d.id);
+      return byId || byName || byTreatmentDocIds;
+    });
+
+    if (matchingDocs.length === 0) {
+      // If no doctor is explicitly assigned to this treatment yet, show all doctors
+      return [NO_PREFERENCE, ...allDoctors.map((d) => d.name)];
+    }
+
+    return [NO_PREFERENCE, ...matchingDocs.map((d) => d.name)];
+  }, [form.service, allTreatments, allDoctors]);
+
+  // If currently selected dentist is no longer in availableDentists, reset to No Preference
+  useEffect(() => {
+    if (form.dentist !== NO_PREFERENCE && !availableDentists.includes(form.dentist)) {
+      setForm((prev) => ({ ...prev, dentist: NO_PREFERENCE }));
+    }
+  }, [availableDentists, form.dentist]);
 
   function update<K extends keyof typeof form>(key: K, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -245,7 +287,7 @@ export default function BookingPage() {
                     onChange={(e) => update("dentist", e.target.value)}
                     className={inputClass}
                   >
-                    {dentists.map((d, idx) => (
+                    {availableDentists.map((d, idx) => (
                       <option key={`dentist-${d}-${idx}`} value={d}>{d}</option>
                     ))}
                   </select>

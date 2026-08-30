@@ -20,6 +20,7 @@ export const createDoctorSchema = z.object({
   gender: z.string().optional(),
   address: z.string().optional(),
   employmentType: z.enum(["full_time", "part_time", "contractor"]).optional(),
+  treatmentIds: z.array(z.string().uuid("Invalid treatment ID")).optional(),
 });
 
 export type CreateDoctorInput = z.infer<typeof createDoctorSchema>;
@@ -41,6 +42,7 @@ export const updateDoctorSchema = z.object({
   gender: z.string().optional(),
   address: z.string().optional(),
   employmentType: z.enum(["full_time", "part_time", "contractor"]).optional(),
+  treatmentIds: z.array(z.string().uuid("Invalid treatment ID")).optional(),
 });
 
 export type UpdateDoctorInput = z.infer<typeof updateDoctorSchema>;

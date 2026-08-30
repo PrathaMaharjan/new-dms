@@ -9,7 +9,7 @@ import {
   unique,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
-import { locations } from "./tenancy";
+import { locations, users } from "./tenancy";
 import { appointments } from "./scheduling";
 import { inventoryItems } from "./inventory";
 
@@ -88,16 +88,37 @@ export const treatmentSupplies = pgTable(
   }),
 );
 
-// export const treatmentsRelations = relations(treatments, ({ one }) => ({
-//   location: one(locations, { fields: [treatments.locationId], references: [locations.id] }),
-// }));
+export const doctorTreatments = pgTable(
+  "doctor_treatments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    doctorId: uuid("doctor_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    treatmentId: uuid("treatment_id")
+      .notNull()
+      .references(() => treatments.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    doctorIdx: index("doctor_treatments_doctor_id_idx").on(table.doctorId),
+    treatmentIdx: index("doctor_treatments_treatment_id_idx").on(table.treatmentId),
+    doctorTreatmentUnique: unique("doctor_treatments_doctor_treatment_unique").on(
+      table.doctorId,
+      table.treatmentId,
+    ),
+  }),
+);
+
 export const treatmentsRelations = relations(treatments, ({ one, many }) => ({
   location: one(locations, {
     fields: [treatments.locationId],
     references: [locations.id],
   }),
   appointments: many(appointments),
+  doctorTreatments: many(doctorTreatments),
 }));
+
 export const treatmentSuppliesRelations = relations(
   treatmentSupplies,
   ({ one }) => ({
@@ -108,6 +129,20 @@ export const treatmentSuppliesRelations = relations(
     item: one(inventoryItems, {
       fields: [treatmentSupplies.itemId],
       references: [inventoryItems.id],
+    }),
+  }),
+);
+
+export const doctorTreatmentsRelations = relations(
+  doctorTreatments,
+  ({ one }) => ({
+    doctor: one(users, {
+      fields: [doctorTreatments.doctorId],
+      references: [users.id],
+    }),
+    treatment: one(treatments, {
+      fields: [doctorTreatments.treatmentId],
+      references: [treatments.id],
     }),
   }),
 );
