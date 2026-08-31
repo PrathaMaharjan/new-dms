@@ -103,6 +103,8 @@ export type TreatmentOption = {
   category?: string;
   durationMinutes?: number;
   priceCents?: number;
+  locationId?: string;
+  locationName?: string;
 };
 
 type Doctor = {
@@ -220,6 +222,8 @@ export default function DoctorsPage() {
   const [availableTreatments, setAvailableTreatments] = useState<TreatmentOption[]>([]);
   const [treatmentSearch, setTreatmentSearch] = useState("");
   const [treatmentCategoryFilter, setTreatmentCategoryFilter] = useState("All");
+  const [treatmentOutletFilter, setTreatmentOutletFilter] = useState("All");
+  const [outletsList, setOutletsList] = useState<{ id: string; name: string }[]>([]);
   const [locationId, setLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -309,15 +313,30 @@ export default function DoctorsPage() {
         }
       }
 
-      const [res, apptsRes, treatmentsRes] = await Promise.all([
+      const [res, apptsRes, treatmentsRes, outletsRes] = await Promise.all([
         axios.get("/api/doctor", {
           params: locId ? { locationId: locId } : undefined,
         }),
         axios.get("/api/appoments", {
           params: locId ? { locationId: locId } : undefined,
         }).catch(() => null),
-        axios.get("/api/treatment").catch(() => null),
+        axios.get("/api/treatment", {
+          params: locId ? { locationId: locId, limit: 100 } : { limit: 100 },
+        }).catch(() => null),
+        axios.get("/api/outlets").catch(() => null),
       ]);
+
+      if (outletsRes?.data?.success && Array.isArray(outletsRes.data.data?.locations)) {
+        const seenOutlets = new Set<string>();
+        const mappedOutlets: { id: string; name: string }[] = [];
+        outletsRes.data.data.locations.forEach((l: any) => {
+          if (l.id && !seenOutlets.has(l.id)) {
+            seenOutlets.add(l.id);
+            mappedOutlets.push({ id: l.id, name: l.name });
+          }
+        });
+        setOutletsList(mappedOutlets);
+      }
 
       if (treatmentsRes?.data?.success && Array.isArray(treatmentsRes.data.data?.treatments)) {
         const mappedTreatments: TreatmentOption[] = treatmentsRes.data.data.treatments.map((t: any) => ({
@@ -326,6 +345,8 @@ export default function DoctorsPage() {
           category: t.category,
           durationMinutes: t.durationMinutes,
           priceCents: t.priceCents,
+          locationId: t.locationId,
+          locationName: t.locationName,
         }));
         setAvailableTreatments(mappedTreatments);
       }
@@ -465,6 +486,7 @@ export default function DoctorsPage() {
     setForm(EMPTY_FORM);
     setTreatmentSearch("");
     setTreatmentCategoryFilter("All");
+    setTreatmentOutletFilter("All");
     setImageFile(null);
     setImagePreview(null);
     setShowPassword(false);
@@ -479,6 +501,7 @@ export default function DoctorsPage() {
     setForm(doctorToForm(doc));
     setTreatmentSearch("");
     setTreatmentCategoryFilter("All");
+    setTreatmentOutletFilter("All");
     setImageFile(null);
     setImagePreview(doc.imageUrl || null);
     setShowPassword(false);
@@ -599,17 +622,24 @@ export default function DoctorsPage() {
   }
 
   function selectAllTreatments() {
-    setForm((prev) => ({
-      ...prev,
-      treatmentIds: availableTreatments.map((t) => t.id),
-    }));
+    setForm((prev) => {
+      const current = new Set(prev.treatmentIds || []);
+      modalFilteredTreatments.forEach((t) => current.add(t.id));
+      return { ...prev, treatmentIds: Array.from(current) };
+    });
   }
 
   function clearAllTreatments() {
-    setForm((prev) => ({
-      ...prev,
-      treatmentIds: [],
-    }));
+    setForm((prev) => {
+      if (treatmentOutletFilter === "All" && treatmentCategoryFilter === "All" && !treatmentSearch.trim()) {
+        return { ...prev, treatmentIds: [] };
+      }
+      const filteredIds = new Set(modalFilteredTreatments.map((t) => t.id));
+      return {
+        ...prev,
+        treatmentIds: (prev.treatmentIds || []).filter((id) => !filteredIds.has(id)),
+      };
+    });
   }
 
   const treatmentCategories = useMemo(() => {
@@ -620,14 +650,61 @@ export default function DoctorsPage() {
     return ["All", ...Array.from(cats)];
   }, [availableTreatments]);
 
+  const treatmentOutlets = useMemo(() => {
+    const map = new Map<string, string>();
+    outletsList.forEach((o) => {
+      if (o.id && o.id !== "all") map.set(o.id, o.name);
+    });
+    availableTreatments.forEach((t) => {
+      if (t.locationId && !map.has(t.locationId)) {
+        map.set(t.locationId, t.locationName || "Outlet");
+      }
+    });
+    return Array.from(map.entries()).map(([id, name]) => ({ id, name }));
+  }, [outletsList, availableTreatments]);
+
   const modalFilteredTreatments = useMemo(() => {
     const q = treatmentSearch.trim().toLowerCase();
     return availableTreatments.filter((t) => {
-      const matchesSearch = !q || t.name.toLowerCase().includes(q) || (t.category && t.category.toLowerCase().includes(q));
-      const matchesCat = treatmentCategoryFilter === "All" || t.category === treatmentCategoryFilter;
-      return matchesSearch && matchesCat;
+      const matchesSearch =
+        !q ||
+        t.name.toLowerCase().includes(q) ||
+        (t.category && t.category.toLowerCase().includes(q)) ||
+        (t.locationName && t.locationName.toLowerCase().includes(q));
+      const matchesCat =
+        treatmentCategoryFilter === "All" || t.category === treatmentCategoryFilter;
+      const matchesOutlet =
+        treatmentOutletFilter === "All" || t.locationId === treatmentOutletFilter;
+      return matchesSearch && matchesCat && matchesOutlet;
     });
-  }, [availableTreatments, treatmentSearch, treatmentCategoryFilter]);
+  }, [availableTreatments, treatmentSearch, treatmentCategoryFilter, treatmentOutletFilter]);
+
+  const treatmentsGroupedByOutlet = useMemo(() => {
+    const groups: { outletId: string; outletName: string; treatments: TreatmentOption[] }[] = [];
+    const groupMap = new Map<string, TreatmentOption[]>();
+
+    modalFilteredTreatments.forEach((t) => {
+      const locId = t.locationId || "other";
+      if (!groupMap.has(locId)) {
+        groupMap.set(locId, []);
+      }
+      groupMap.get(locId)!.push(t);
+    });
+
+    groupMap.forEach((trts, locId) => {
+      const outletName =
+        trts[0]?.locationName ||
+        outletsList.find((o) => o.id === locId)?.name ||
+        (locId === "other" ? "Other Outlet" : "Outlet");
+      groups.push({
+        outletId: locId,
+        outletName,
+        treatments: trts,
+      });
+    });
+
+    return groups;
+  }, [modalFilteredTreatments, outletsList]);
 
   function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -1360,7 +1437,7 @@ export default function DoctorsPage() {
                         Treatments Doctor Can Perform
                       </span>
                       <p className="text-[0.75rem] text-slate-500 mt-0.5">
-                        Select all treatments and procedures this doctor is authorized to perform
+                        Select all treatments and procedures by outlet this doctor is authorized to perform
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1390,23 +1467,39 @@ export default function DoctorsPage() {
 
                   {availableTreatments.length > 0 ? (
                     <div className="space-y-3">
-                      {/* Search & Category Filter */}
+                      {/* Search, Outlet & Category Filter */}
                       <div className="flex flex-col sm:flex-row gap-2">
                         <div className="relative flex-1">
                           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                           <input
                             type="text"
-                            placeholder="Filter treatments..."
+                            placeholder="Filter treatments or outlet..."
                             value={treatmentSearch}
                             onChange={(e) => setTreatmentSearch(e.target.value)}
                             className="w-full rounded-xl border border-slate-200 bg-white py-1.5 pl-8 pr-3 text-xs text-slate-800 placeholder:text-slate-400 focus:border-[#7da3b3] outline-none"
                           />
                         </div>
+                        {treatmentOutlets.length > 0 && (
+                          <div className="relative">
+                            <select
+                              value={treatmentOutletFilter}
+                              onChange={(e) => setTreatmentOutletFilter(e.target.value)}
+                              className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-[#7da3b3]"
+                            >
+                              <option value="All">All Outlets</option>
+                              {treatmentOutlets.map((o) => (
+                                <option key={o.id} value={o.id}>
+                                  {o.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
                         {treatmentCategories.length > 2 && (
                           <select
                             value={treatmentCategoryFilter}
                             onChange={(e) => setTreatmentCategoryFilter(e.target.value)}
-                            className="rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-[#7da3b3]"
+                            className="w-full sm:w-auto rounded-xl border border-slate-200 bg-white py-1.5 px-2.5 text-xs font-medium text-slate-700 outline-none focus:border-[#7da3b3]"
                           >
                             {treatmentCategories.map((c) => (
                               <option key={c} value={c}>
@@ -1417,65 +1510,83 @@ export default function DoctorsPage() {
                         )}
                       </div>
 
-                      {/* Treatments Grid */}
-                      <div className="max-h-56 overflow-y-auto space-y-1.5 pr-1">
-                        {modalFilteredTreatments.length === 0 ? (
+                      {/* Treatments List Grouped by Outlet */}
+                      <div className="max-h-64 overflow-y-auto space-y-4 pr-1">
+                        {treatmentsGroupedByOutlet.length === 0 ? (
                           <p className="py-4 text-center text-xs text-slate-400">
-                            No treatments match your search.
+                            No treatments match your search or filter.
                           </p>
                         ) : (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {modalFilteredTreatments.map((t) => {
-                              const isChecked = form.treatmentIds?.includes(t.id);
-                              return (
-                                <div
-                                  key={t.id}
-                                  onClick={() => toggleTreatment(t.id)}
-                                  className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
-                                    isChecked
-                                      ? "bg-[#7da3b3]/10 border-[#7da3b3] shadow-xs"
-                                      : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/70"
-                                  }`}
-                                >
-                                  <div
-                                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border transition-colors ${
-                                      isChecked
-                                        ? "bg-[#3f6274] border-[#3f6274] text-white"
-                                        : "border-slate-300 bg-white"
-                                    }`}
-                                  >
-                                    {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
-                                  </div>
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-xs font-semibold text-slate-800 truncate">
-                                      {t.name}
-                                    </p>
-                                    <div className="flex items-center gap-1.5 text-[0.7rem] text-slate-500 mt-0.5">
-                                      {t.category && (
-                                        <span className="capitalize text-slate-500 font-medium">
-                                          {t.category}
-                                        </span>
-                                      )}
-                                      {t.durationMinutes && (
-                                        <>
-                                          <span className="text-slate-300">•</span>
-                                          <span>{t.durationMinutes}m</span>
-                                        </>
-                                      )}
-                                      {t.priceCents !== undefined && (
-                                        <>
-                                          <span className="text-slate-300">•</span>
-                                          <span className="font-semibold text-slate-700">
-                                            ${(t.priceCents / 100).toFixed(0)}
-                                          </span>
-                                        </>
-                                      )}
-                                    </div>
-                                  </div>
+                          treatmentsGroupedByOutlet.map((group) => {
+                            const groupSelectedCount = group.treatments.filter((t) =>
+                              form.treatmentIds?.includes(t.id)
+                            ).length;
+                            return (
+                              <div key={group.outletId} className="space-y-2">
+                                <div className="flex items-center justify-between pb-1 border-b border-slate-200">
+                                  <span className="flex items-center gap-1.5 text-xs font-bold text-slate-700">
+                                    <MapPin className="h-3.5 w-3.5 text-[#3f6274]" />
+                                    {group.outletName}
+                                  </span>
+                                  <span className="text-[0.7rem] font-medium text-slate-500">
+                                    {groupSelectedCount}/{group.treatments.length} selected
+                                  </span>
                                 </div>
-                              );
-                            })}
-                          </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                  {group.treatments.map((t) => {
+                                    const isChecked = form.treatmentIds?.includes(t.id);
+                                    return (
+                                      <div
+                                        key={t.id}
+                                        onClick={() => toggleTreatment(t.id)}
+                                        className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
+                                          isChecked
+                                            ? "bg-[#7da3b3]/10 border-[#7da3b3] shadow-xs"
+                                            : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/70"
+                                        }`}
+                                      >
+                                        <div
+                                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border transition-colors ${
+                                            isChecked
+                                              ? "bg-[#3f6274] border-[#3f6274] text-white"
+                                              : "border-slate-300 bg-white"
+                                          }`}
+                                        >
+                                          {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                          <p className="text-xs font-semibold text-slate-800 truncate">
+                                            {t.name}
+                                          </p>
+                                          <div className="flex items-center gap-1.5 text-[0.7rem] text-slate-500 mt-0.5 flex-wrap">
+                                            {t.category && (
+                                              <span className="capitalize text-slate-500 font-medium">
+                                                {t.category}
+                                              </span>
+                                            )}
+                                            {t.durationMinutes && (
+                                              <>
+                                                <span className="text-slate-300">•</span>
+                                                <span>{t.durationMinutes}m</span>
+                                              </>
+                                            )}
+                                            {t.priceCents !== undefined && (
+                                              <>
+                                                <span className="text-slate-300">•</span>
+                                                <span className="font-semibold text-slate-700">
+                                                  ${(t.priceCents / 100).toFixed(0)}
+                                                </span>
+                                              </>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -1755,26 +1866,74 @@ export default function DoctorsPage() {
                             Treatments & Procedures
                           </p>
                           <span className="rounded-full bg-[#7da3b3]/15 px-2.5 py-0.5 text-xs font-semibold text-[#345263]">
-                            {(selectedDoctor.treatments || []).length} Assigned
+                            {(() => {
+                              const count = locationId
+                                ? (selectedDoctor.treatments || []).filter((t) => t.locationId === locationId).length
+                                : (selectedDoctor.treatments || []).length;
+                              return `${count} Assigned`;
+                            })()}
                           </span>
                         </div>
                         <div className="mt-3">
                           {selectedDoctor.treatments && selectedDoctor.treatments.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {selectedDoctor.treatments.map((t) => (
-                                <span
-                                  key={t.id}
-                                  className="inline-flex items-center gap-1.5 rounded-xl border border-slate-900/10 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-800"
-                                >
-                                  <Activity className="h-3 w-3 text-[#7da3b3]" />
-                                  {t.name}
-                                  {t.category && (
-                                    <span className="text-[0.68rem] text-slate-500 font-semibold uppercase">
-                                      • {t.category}
-                                    </span>
-                                  )}
-                                </span>
-                              ))}
+                            <div className="space-y-4">
+                              {(() => {
+                                const filteredDoctorTreatments = locationId
+                                  ? (selectedDoctor.treatments || []).filter((t) => t.locationId === locationId)
+                                  : (selectedDoctor.treatments || []);
+
+                                if (filteredDoctorTreatments.length === 0) {
+                                  return (
+                                    <p className="text-xs text-slate-500 italic">
+                                      {locationId
+                                        ? "No treatments assigned to this doctor for this outlet."
+                                        : "No specific treatments assigned to this doctor yet."}
+                                    </p>
+                                  );
+                                }
+
+                                const groups = new Map<string, { outletName: string; treatments: TreatmentOption[] }>();
+                                filteredDoctorTreatments.forEach((t) => {
+                                  const locId = t.locationId || "other";
+                                  const outletName =
+                                    t.locationName ||
+                                    outletsList.find((o) => o.id === locId)?.name ||
+                                    availableTreatments.find((at) => at.id === t.id)?.locationName ||
+                                    (locId === "other" ? "General / All Outlets" : "Outlet");
+                                  if (!groups.has(locId)) {
+                                    groups.set(locId, { outletName, treatments: [] });
+                                  }
+                                  groups.get(locId)!.treatments.push(t);
+                                });
+
+                                return Array.from(groups.entries()).map(([locId, grp]) => (
+                                  <div key={locId} className="rounded-xl border border-slate-900/10 bg-slate-50/50 p-3">
+                                    <div className="flex items-center gap-1.5 mb-2.5 text-xs font-bold text-slate-800">
+                                      <MapPin className="h-3.5 w-3.5 text-[#3f6274]" />
+                                      <span>{grp.outletName}</span>
+                                      <span className="ml-auto rounded-md bg-white border border-slate-200 px-1.5 py-0.5 text-[0.68rem] font-semibold text-slate-600">
+                                        {grp.treatments.length} procedure{grp.treatments.length !== 1 ? "s" : ""}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                      {grp.treatments.map((t) => (
+                                        <span
+                                          key={t.id}
+                                          className="inline-flex items-center gap-1.5 rounded-xl border border-slate-900/10 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 shadow-2xs"
+                                        >
+                                          <Activity className="h-3 w-3 text-[#7da3b3]" />
+                                          {t.name}
+                                          {t.category && (
+                                            <span className="text-[0.68rem] text-slate-500 font-semibold uppercase">
+                                              • {t.category}
+                                            </span>
+                                          )}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ));
+                              })()}
                             </div>
                           ) : (
                             <p className="text-xs text-slate-500 italic">No specific treatments assigned to this doctor yet.</p>

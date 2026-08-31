@@ -158,6 +158,7 @@ export async function getTreatments(
         .select({
           id: treatments.id,
           locationId: treatments.locationId,
+          locationName: locations.name,
           name: treatments.name,
           category: treatments.category,
           durationMinutes: treatments.durationMinutes,

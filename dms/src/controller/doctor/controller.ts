@@ -359,9 +359,15 @@ export async function getDoctors(
               doctorId: doctorTreatments.doctorId,
               treatmentId: treatments.id,
               treatmentName: treatments.name,
+              category: treatments.category,
+              durationMinutes: treatments.durationMinutes,
+              priceCents: treatments.priceCents,
+              locationId: treatments.locationId,
+              locationName: locations.name,
             })
             .from(doctorTreatments)
             .innerJoin(treatments, eq(doctorTreatments.treatmentId, treatments.id))
+            .leftJoin(locations, eq(treatments.locationId, locations.id))
             .where(inArray(doctorTreatments.doctorId, doctorIds))
         : Promise.resolve([]),
     ]);
@@ -370,10 +376,18 @@ export async function getDoctors(
       patientCounts.map((p) => [p.providerId, p.patientCount]),
     );
 
-    const treatmentsByDoctor = new Map<string, { id: string; name: string }[]>();
+    const treatmentsByDoctor = new Map<string, { id: string; name: string; category?: string; durationMinutes?: number; priceCents?: number; locationId?: string; locationName?: string }[]>();
     doctorTreatmentsList.forEach((dt) => {
       const list = treatmentsByDoctor.get(dt.doctorId) || [];
-      list.push({ id: dt.treatmentId, name: dt.treatmentName });
+      list.push({
+        id: dt.treatmentId,
+        name: dt.treatmentName,
+        category: dt.category || undefined,
+        durationMinutes: dt.durationMinutes || undefined,
+        priceCents: dt.priceCents || undefined,
+        locationId: dt.locationId || undefined,
+        locationName: dt.locationName || undefined,
+      });
       treatmentsByDoctor.set(dt.doctorId, list);
     });
 
@@ -838,9 +852,12 @@ export async function getDoctor(doctorId: string): Promise<GetDoctorResult> {
           category: treatments.category,
           durationMinutes: treatments.durationMinutes,
           priceCents: treatments.priceCents,
+          locationId: treatments.locationId,
+          locationName: locations.name,
         })
         .from(doctorTreatments)
         .innerJoin(treatments, eq(doctorTreatments.treatmentId, treatments.id))
+        .leftJoin(locations, eq(treatments.locationId, locations.id))
         .where(eq(doctorTreatments.doctorId, doctorId)),
     ]);
 
