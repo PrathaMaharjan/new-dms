@@ -3,7 +3,7 @@ import { appointments, clinicalNotes, patientMedicalRecords, patients, treatment
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { patientSchema, updatePatientSchema } from "@/lib/validators/patent";
 // import { patientSchema } from "@/lib/validators/auth";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, notInArray, or, sql } from "drizzle-orm";
 import { HistoryErrorCode } from "../doctor/controller";
 import { setMedicalHistory } from "@/lib/helper/setMedicalHistory";
 
@@ -69,15 +69,29 @@ export async function getPatients(
     );
     const offset = Math.max(options?.offset ?? 0, 0);
 
+    const excludeUnconfirmedOnlineLead = sql`NOT EXISTS (
+      SELECT 1 FROM appointments a
+      WHERE a.patient_id = ${patients.id}
+      AND a.source = 'online_booking'
+      AND a.status = 'requested'
+      AND NOT EXISTS (
+        SELECT 1 FROM appointments a2
+        WHERE a2.patient_id = ${patients.id}
+        AND a2.status NOT IN ('requested', 'cancelled')
+      )
+    )`;
+
     const whereClause = locationId
       ? and(
           eq(patients.orgId, session.orgId),
           eq(patients.locationId, locationId),
           isNull(patients.deletedAt),
+          excludeUnconfirmedOnlineLead,
         )
       : and(
           eq(patients.orgId, session.orgId),
           isNull(patients.deletedAt),
+          excludeUnconfirmedOnlineLead,
         );
 
     const latestAppt = db
@@ -87,6 +101,7 @@ export async function getPatients(
         startTime: appointments.startTime,
       })
       .from(appointments)
+      .where(notInArray(appointments.status, ["cancelled", "requested"]))
       .orderBy(appointments.patientId, desc(appointments.startTime))
       .as("latest_appt");
 

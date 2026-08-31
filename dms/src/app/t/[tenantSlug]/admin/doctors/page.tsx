@@ -244,7 +244,7 @@ export default function DoctorsPage() {
             setSpecializationsList(Array.from(new Set([...SPECIALIZATIONS, ...parsed])));
           }
         }
-      } catch (e) {}
+      } catch (e) { }
     }
   }, [storageKey]);
 
@@ -320,9 +320,7 @@ export default function DoctorsPage() {
         axios.get("/api/appoments", {
           params: locId ? { locationId: locId } : undefined,
         }).catch(() => null),
-        axios.get("/api/treatment", {
-          params: locId ? { locationId: locId, limit: 100 } : { limit: 100 },
-        }).catch(() => null),
+        axios.get("/api/treatment?limit=100").catch(() => null),
         axios.get("/api/outlets").catch(() => null),
       ]);
 
@@ -938,7 +936,7 @@ export default function DoctorsPage() {
             Doctors
           </h1>
 
-        
+
         </div>
       </div>
 
@@ -1004,7 +1002,7 @@ export default function DoctorsPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              
+
               <button
                 onClick={openAddModal}
                 className="inline-flex items-center gap-2 rounded-full bg-[#749fb1] px-5 py-2.5 text-[0.9rem] font-medium text-white shadow-sm transition-colors hover:bg-[#345263]"
@@ -1539,18 +1537,16 @@ export default function DoctorsPage() {
                                       <div
                                         key={t.id}
                                         onClick={() => toggleTreatment(t.id)}
-                                        className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${
-                                          isChecked
+                                        className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer select-none ${isChecked
                                             ? "bg-[#7da3b3]/10 border-[#7da3b3] shadow-xs"
                                             : "bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/70"
-                                        }`}
+                                          }`}
                                       >
                                         <div
-                                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border transition-colors ${
-                                            isChecked
+                                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-md border transition-colors ${isChecked
                                               ? "bg-[#3f6274] border-[#3f6274] text-white"
                                               : "border-slate-300 bg-white"
-                                          }`}
+                                            }`}
                                         >
                                           {isChecked && <Check className="h-3 w-3 stroke-[3]" />}
                                         </div>
@@ -1866,34 +1862,15 @@ export default function DoctorsPage() {
                             Treatments & Procedures
                           </p>
                           <span className="rounded-full bg-[#7da3b3]/15 px-2.5 py-0.5 text-xs font-semibold text-[#345263]">
-                            {(() => {
-                              const count = locationId
-                                ? (selectedDoctor.treatments || []).filter((t) => t.locationId === locationId).length
-                                : (selectedDoctor.treatments || []).length;
-                              return `${count} Assigned`;
-                            })()}
+                            {(selectedDoctor.treatments || []).length} Assigned
                           </span>
                         </div>
                         <div className="mt-3">
                           {selectedDoctor.treatments && selectedDoctor.treatments.length > 0 ? (
                             <div className="space-y-4">
                               {(() => {
-                                const filteredDoctorTreatments = locationId
-                                  ? (selectedDoctor.treatments || []).filter((t) => t.locationId === locationId)
-                                  : (selectedDoctor.treatments || []);
-
-                                if (filteredDoctorTreatments.length === 0) {
-                                  return (
-                                    <p className="text-xs text-slate-500 italic">
-                                      {locationId
-                                        ? "No treatments assigned to this doctor for this outlet."
-                                        : "No specific treatments assigned to this doctor yet."}
-                                    </p>
-                                  );
-                                }
-
                                 const groups = new Map<string, { outletName: string; treatments: TreatmentOption[] }>();
-                                filteredDoctorTreatments.forEach((t) => {
+                                selectedDoctor.treatments.forEach((t) => {
                                   const locId = t.locationId || "other";
                                   const outletName =
                                     t.locationName ||

@@ -12,7 +12,7 @@ import {
 } from "@/db/schema";
 import { requireSession, SessionError } from "@/lib/auth/get-session";
 import { addLedgerEntrySchema } from "@/lib/validators/billing";
-import { and, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, ne, notInArray, or, sql } from "drizzle-orm";
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -502,7 +502,12 @@ export async function getBillingPatients(
         })
         .from(appointments)
         .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
-        .where(and(inArray(appointments.patientId, patientIds), ne(appointments.status, "cancelled")))
+        .where(
+          and(
+            inArray(appointments.patientId, patientIds),
+            notInArray(appointments.status, ["cancelled", "requested"])
+          )
+        )
         .orderBy(appointments.patientId, desc(appointments.startTime))
       : [];
 
@@ -510,15 +515,18 @@ export async function getBillingPatients(
       lastAppointmentRows.map((r) => [r.patientId, { name: r.treatmentName, costCents: r.treatmentCostCents }])
     );
 
-    const withStatus = rows.map((r) => {
-      const treatmentInfo = treatmentByPatient.get(r.patientId);
-      return {
-        ...r,
-        lastTreatmentName: treatmentInfo?.name ?? null,
-        lastTreatmentCostCents: treatmentInfo?.costCents ?? null,
-        status: (r.balanceCents > 0 ? "due" : "settled") as "due" | "settled",
-      };
-    });
+    const withStatus = rows
+      // Exclude patients who have zero billing records AND no confirmed visits (e.g. unconfirmed online booking leads)
+      .filter((r) => r.chargedCents > 0 || r.paidCents > 0 || treatmentByPatient.has(r.patientId))
+      .map((r) => {
+        const treatmentInfo = treatmentByPatient.get(r.patientId);
+        return {
+          ...r,
+          lastTreatmentName: treatmentInfo?.name ?? null,
+          lastTreatmentCostCents: treatmentInfo?.costCents ?? null,
+          status: (r.balanceCents > 0 ? "due" : "settled") as "due" | "settled",
+        };
+      });
 
     let filtered = withStatus;
     if (options?.balanceFilter === "due") {

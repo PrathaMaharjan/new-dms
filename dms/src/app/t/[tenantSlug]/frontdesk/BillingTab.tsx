@@ -589,8 +589,7 @@ export default function BillingPage() {
                 <tr className="bg-slate-50 text-[0.75rem] font-medium uppercase tracking-wide text-slate-500">
                   <th className="px-5 py-3 font-medium">Patient</th>
                   <th className="px-5 py-3 font-medium">Phone</th>
-                  <th className="px-5 py-3 font-medium">Last Treatment</th>{" "}
-                  {/* ADDED */}
+                  <th className="px-5 py-3 font-medium">Last Treatment</th>
                   <th className="px-5 py-3 font-medium">Last Activity</th>
                   <th className="px-5 py-3 font-medium">Charged</th>
                   <th className="px-5 py-3 font-medium">Paid</th>
