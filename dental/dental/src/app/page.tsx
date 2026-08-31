@@ -7,10 +7,7 @@ import Doctors from "./components/Doctors";
 export default function Home() {
   return (
     <>
-  
-
       <main className="relative overflow-hidden">
-
         <Hero />
         <Services />
 
@@ -24,8 +21,6 @@ export default function Home() {
         <Doctors />
         <BrushingHighlight />
       </main>
-
-   
     </>
   );
 }
