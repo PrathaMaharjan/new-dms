@@ -1,10 +1,16 @@
 import { db } from "@/db";
 import crypto from "crypto";
 import {
+    appointments,
+  clinicalNotes,
+  locations,
   organizations,
+  patientMedicalRecords,
   patientRefreshTokens,
   patients,
   patientVerificationCodes,
+  treatments,
+  users,
 } from "@/db/schema";
 import {
   generatePatientRefreshToken,
@@ -16,7 +22,8 @@ import {
   requestPatientCodeSchema,
   verifyPatientCodeSchema,
 } from "@/lib/validators/patent-portal";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { PatientSessionError, requirePatientSession } from "@/lib/auth/get-patient-seesion";
 
 export type RequestCodeResult =
   | { success: true }
@@ -202,4 +209,124 @@ export async function verifyPatientCode(
       email: patient.email ?? "",
     },
   };
+}
+
+
+export type PrescriptionEntry = {
+  date: Date;
+  prescription: string;
+  doctorName: string;
+  treatmentName: string;
+  locationName: string; // ADDED
+};
+
+export type PrescriptionHistoryResult =
+  | { success: true; prescriptions: PrescriptionEntry[] }
+  | { success: false; error: string };
+
+export async function getMyPrescriptionHistory(): Promise<PrescriptionHistoryResult> {
+  try {
+    const session = await requirePatientSession(); // { patientId, orgId }
+
+    const rows = await db
+      .select({
+        date: appointments.startTime,
+        prescription: clinicalNotes.prescription,
+        doctorName: users.name,
+        treatmentName: treatments.name,
+        locationName: locations.name, 
+      })
+      .from(clinicalNotes)
+      .innerJoin(appointments, eq(clinicalNotes.appointmentId, appointments.id))
+      .innerJoin(users, eq(appointments.providerId, users.id))
+      .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
+      .innerJoin(locations, eq(appointments.locationId, locations.id)) // ADDED
+      .where(and(eq(appointments.patientId, session.patientId), isNotNull(clinicalNotes.prescription)))
+      .orderBy(desc(appointments.startTime));
+
+    return { success: true, prescriptions: rows.map((r) => ({ ...r, prescription: r.prescription! })) };
+  } catch (err) {
+    if (err instanceof PatientSessionError) {
+      return { success: false, error: err.message };
+    }
+    console.error(err);
+    return { success: false, error: "Something went wrong loading your prescriptions." };
+  }
+}
+
+
+export type PatientProfileData = {
+  personal: {
+    fullName: string;
+    dob: string | null;
+    gender: string | null;
+    bloodGroup: string | null;
+  };
+  contact: {
+    mobile: string | null;
+    email: string | null;
+    // address: string | null; 
+    preferredLanguage: string | null; 
+  };
+  // emergencyContact: {
+  //   name: string | null; // ADDED - null for now, no columns exist yet
+  //   relationship: string | null;
+  //   mobile: string | null;
+  // };
+  medicalFlags: {
+    allergies: string[];
+    conditions: string[];
+    medications: string[];
+  };
+};
+
+export type PatientProfileResult =
+  | { success: true; data: PatientProfileData }
+  | { success: false; error: string };
+
+export async function getMyProfile(): Promise<PatientProfileResult> {
+  try {
+    const session = await requirePatientSession();
+
+    const patient = await db.query.patients.findFirst({
+      where: eq(patients.id, session.patientId),
+    });
+    if (!patient) {
+      return { success: false, error: "Patient not found." };
+    }
+
+    const medicalRecords = await db
+      .select({ type: patientMedicalRecords.type, value: patientMedicalRecords.value })
+      .from(patientMedicalRecords)
+      .where(eq(patientMedicalRecords.patientId, session.patientId));
+
+    return {
+      success: true,
+      data: {
+        personal: {
+          fullName: `${patient.firstName} ${patient.lastName}`,
+          dob: patient.dob,
+          gender: patient.gender,
+          bloodGroup: patient.bloodGroup,
+        },
+        contact: {
+          mobile: patient.phone,
+          email: patient.email,
+          // address: null, // no `address` column on patients yet - see note below
+          preferredLanguage: "english", 
+        },
+        medicalFlags: {
+          allergies: medicalRecords.filter((r) => r.type === "allergy").map((r) => r.value),
+          conditions: medicalRecords.filter((r) => r.type === "condition").map((r) => r.value),
+          medications: medicalRecords.filter((r) => r.type === "medication").map((r) => r.value),
+        },
+      },
+    };
+  } catch (err) {
+    if (err instanceof PatientSessionError) {
+      return { success: false, error: err.message };
+    }
+    console.error(err);
+    return { success: false, error: "Something went wrong loading your profile." };
+  }
 }

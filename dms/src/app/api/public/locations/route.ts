@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
     if (!tenantSlug) {
       return NextResponse.json(
         { success: false, error: "tenantSlug is required" },
-        { status: 400, headers: corsHeaders }
+        { status: 400, headers: corsHeaders },
       );
     }
 
@@ -30,8 +30,11 @@ export async function GET(request: NextRequest) {
 
     if (!org) {
       return NextResponse.json(
-        { success: false, error: `Organization not found for tenant slug: ${tenantSlug}` },
-        { status: 404, headers: corsHeaders }
+        {
+          success: false,
+          error: `Organization not found for tenant slug: ${tenantSlug}`,
+        },
+        { status: 404, headers: corsHeaders },
       );
     }
 
@@ -51,14 +54,14 @@ export async function GET(request: NextRequest) {
       {
         success: true,
         statusCode: 200,
-        data: { locations: orgLocations },
+        data: { locations: orgLocations, orgname: org.name },
       },
-      { headers: corsHeaders }
+      { headers: corsHeaders },
     );
   } catch (error: unknown) {
     return NextResponse.json(
       { success: false, error: "Failed to load public locations" },
-      { status: 500, headers: corsHeaders }
+      { status: 500, headers: corsHeaders },
     );
   }
 }

@@ -94,7 +94,7 @@ export default function PatientLoginPage() {
   }
 
   return (
-    <section className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-gradient-to-b from-sky-50 via-white to-white px-4 py-12 selection:bg-sky-100 selection:text-sky-900">
+    <section className="relative flex min-h-screen w-full items-center justify-center overflow-hidden bg-[#EDF7FC] from-sky-50 via-white to-white px-4 py-12 selection:bg-sky-100 selection:text-sky-900">
       {/* Background Glow Accents */}
       <div className="pointer-events-none absolute -top-40 left-1/2 -z-10 h-[500px] w-[500px] -translate-x-1/2 rounded-full bg-sky-100/60 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-40 -right-20 -z-10 h-[400px] w-[400px] rounded-full bg-slate-100/80 blur-3xl" />

@@ -17,6 +17,7 @@ import z from "zod";
 import { generateVisitReportPdf } from "@/lib/pdfReport/generateVisitReportPdf";
 import { sendPatientReportEmail } from "@/lib/email/sendPatientReportEmail";
 import { generateFullHistoryPdf } from "@/lib/pdfReport/generateFullHistory";
+import { imagePresets } from "@/lib/cloudinary/storage";
 
 export type ReportErrorCode =
   | "UNAUTHORIZED"
@@ -74,7 +75,7 @@ export type FullHistoryData = {
 };
 
 
-export async function getVisitReportData(patientId: string, appointmentId: string): Promise<GetVisitReportDataResult> {
+export async function getVisitReportData(patientId: string, appointmentId: string,orgId: string ): Promise<GetVisitReportDataResult> {
   try {
     const session = await requireSession();
 
@@ -106,7 +107,7 @@ export async function getVisitReportData(patientId: string, appointmentId: strin
       .innerJoin(locations, eq(appointments.locationId, locations.id))
       .innerJoin(organizations, eq(locations.orgId, organizations.id))
       .leftJoin(clinicalNotes, eq(clinicalNotes.appointmentId, appointments.id))
-      .where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, patientId), eq(patients.orgId, session.orgId)))
+      .where(and(eq(appointments.id, appointmentId), eq(appointments.patientId, patientId), eq(patients.orgId,orgId)))
       .limit(1);
 
     if (!row) {
@@ -125,12 +126,11 @@ export async function getVisitReportData(patientId: string, appointmentId: strin
 export type GetFullHistoryResult =
   | { success: true; data: FullHistoryData }
   | { success: false; error: string; code: ReportErrorCode };
-export async function getFullHistoryData(patientId: string): Promise<GetFullHistoryResult> {
-  try {
-    const session = await requireSession();
 
+export async function getFullHistoryData(patientId: string, orgId: string): Promise<GetFullHistoryResult> {
+  try {
     const patient = await db.query.patients.findFirst({
-      where: and(eq(patients.id, patientId), eq(patients.orgId, session.orgId)),
+      where: and(eq(patients.id, patientId), eq(patients.orgId, orgId)), // CHANGED - orgId parameter, not session.orgId
     });
     if (!patient) {
       return { success: false, error: "Patient not found.", code: "NOT_FOUND" };
@@ -149,9 +149,6 @@ export async function getFullHistoryData(patientId: string): Promise<GetFullHist
           status: appointments.status,
           noteText: clinicalNotes.noteText,
           prescription: clinicalNotes.prescription,
-          // followUpInstructions removed - not a real column, folded
-          // into noteText, matching the single-field decision made for
-          // the visit report.
         })
         .from(appointments)
         .innerJoin(users, eq(appointments.providerId, users.id))
@@ -176,31 +173,32 @@ export async function getFullHistoryData(patientId: string): Promise<GetFullHist
       },
     };
   } catch (err) {
-    if (err instanceof SessionError) {
-      return { success: false, error: err.message, code: "UNAUTHORIZED" };
-    }
+    // CHANGED - no SessionError check here anymore, since this function
+    // no longer calls requireSession() at all
     console.error(err);
     return { success: false, error: "Something went wrong loading the medical history.", code: "SERVER_ERROR" };
   }
 }
 
 
-// actually teggier
+
+
 const sendVisitReportSchema = z.object({
   appointmentId: z.string().uuid("Missing or invalid appointment"),
 });
 
 export type SendReportResult = { success: true } | { success: false; error: string; code: ReportErrorCode };
+
 export async function sendVisitReport(patientId: string, input: unknown): Promise<SendReportResult> {
   try {
-    await requireSession();
+    const session = await requireSession(); // CHANGED - now captured, since orgId is needed below
 
     const parsed = sendVisitReportSchema.safeParse(input);
     if (!parsed.success) {
       return { success: false, error: parsed.error.issues[0]?.message ?? "Invalid input.", code: "VALIDATION" };
     }
 
-    const reportResult = await getVisitReportData(patientId, parsed.data.appointmentId);
+    const reportResult = await getVisitReportData(patientId, parsed.data.appointmentId, session.orgId); // CHANGED - orgId passed explicitly
     if (!reportResult.success) return reportResult;
 
     if (!reportResult.data.patientEmail) {
@@ -226,24 +224,18 @@ export async function sendVisitReport(patientId: string, input: unknown): Promis
   }
 }
 
-
 export async function sendFullHistoryReport(patientId: string): Promise<SendReportResult> {
   try {
     const session = await requireSession();
 
-    const historyResult = await getFullHistoryData(patientId);
+    const historyResult = await getFullHistoryData(patientId, session.orgId); // CHANGED - orgId passed explicitly
     if (!historyResult.success) return historyResult;
 
     if (!historyResult.data.patientEmail) {
       return { success: false, error: "This patient has no email on file.", code: "VALIDATION" };
     }
 
-    // getFullHistoryData never joins through locations/organizations -
-    // fetched separately here, same shape getVisitReportData already
-    // pulls inline, since generateFullHistoryPdf needs it as its own arg.
-    const patient = await db.query.patients.findFirst({
-      where: eq(patients.id, patientId),
-    });
+    const patient = await db.query.patients.findFirst({ where: eq(patients.id, patientId) });
     if (!patient) {
       return { success: false, error: "Patient not found.", code: "NOT_FOUND" };
     }
@@ -254,6 +246,7 @@ export async function sendFullHistoryReport(patientId: string): Promise<SendRepo
         clinicAddress: locations.address,
         clinicPhone: locations.phone,
         clinicEmail: locations.email,
+        clinicLogoUrl: organizations.photoUrl,
       })
       .from(locations)
       .innerJoin(organizations, eq(locations.orgId, organizations.id))
@@ -265,6 +258,7 @@ export async function sendFullHistoryReport(patientId: string): Promise<SendRepo
       address: clinicRow?.clinicAddress ?? null,
       phone: clinicRow?.clinicPhone ?? null,
       email: clinicRow?.clinicEmail ?? null,
+      logoUrl: clinicRow?.clinicLogoUrl ? imagePresets.thumbnail(clinicRow.clinicLogoUrl) : null,
     };
 
     const pdfBuffer = await generateFullHistoryPdf(historyResult.data, clinic);
