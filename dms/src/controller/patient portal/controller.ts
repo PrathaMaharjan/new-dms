@@ -1,7 +1,7 @@
 import { db } from "@/db";
 import crypto from "crypto";
 import {
-    appointments,
+  appointments,
   clinicalNotes,
   locations,
   organizations,
@@ -23,7 +23,10 @@ import {
   verifyPatientCodeSchema,
 } from "@/lib/validators/patent-portal";
 import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
-import { PatientSessionError, requirePatientSession } from "@/lib/auth/get-patient-seesion";
+import {
+  PatientSessionError,
+  requirePatientSession,
+} from "@/lib/auth/get-patient-seesion";
 
 export type RequestCodeResult =
   | { success: true }
@@ -211,7 +214,6 @@ export async function verifyPatientCode(
   };
 }
 
-
 export type PrescriptionEntry = {
   date: Date;
   prescription: string;
@@ -234,26 +236,36 @@ export async function getMyPrescriptionHistory(): Promise<PrescriptionHistoryRes
         prescription: clinicalNotes.prescription,
         doctorName: users.name,
         treatmentName: treatments.name,
-        locationName: locations.name, 
+        locationName: locations.name,
       })
       .from(clinicalNotes)
       .innerJoin(appointments, eq(clinicalNotes.appointmentId, appointments.id))
       .innerJoin(users, eq(appointments.providerId, users.id))
       .innerJoin(treatments, eq(appointments.treatmentId, treatments.id))
       .innerJoin(locations, eq(appointments.locationId, locations.id)) // ADDED
-      .where(and(eq(appointments.patientId, session.patientId), isNotNull(clinicalNotes.prescription)))
+      .where(
+        and(
+          eq(appointments.patientId, session.patientId),
+          isNotNull(clinicalNotes.prescription),
+        ),
+      )
       .orderBy(desc(appointments.startTime));
 
-    return { success: true, prescriptions: rows.map((r) => ({ ...r, prescription: r.prescription! })) };
+    return {
+      success: true,
+      prescriptions: rows.map((r) => ({ ...r, prescription: r.prescription! })),
+    };
   } catch (err) {
     if (err instanceof PatientSessionError) {
       return { success: false, error: err.message };
     }
     console.error(err);
-    return { success: false, error: "Something went wrong loading your prescriptions." };
+    return {
+      success: false,
+      error: "Something went wrong loading your prescriptions.",
+    };
   }
 }
-
 
 export type PatientProfileData = {
   personal: {
@@ -265,8 +277,8 @@ export type PatientProfileData = {
   contact: {
     mobile: string | null;
     email: string | null;
-    // address: string | null; 
-    preferredLanguage: string | null; 
+    // address: string | null;
+    preferredLanguage: string | null;
   };
   // emergencyContact: {
   //   name: string | null; // ADDED - null for now, no columns exist yet
@@ -296,7 +308,10 @@ export async function getMyProfile(): Promise<PatientProfileResult> {
     }
 
     const medicalRecords = await db
-      .select({ type: patientMedicalRecords.type, value: patientMedicalRecords.value })
+      .select({
+        type: patientMedicalRecords.type,
+        value: patientMedicalRecords.value,
+      })
       .from(patientMedicalRecords)
       .where(eq(patientMedicalRecords.patientId, session.patientId));
 
@@ -313,12 +328,18 @@ export async function getMyProfile(): Promise<PatientProfileResult> {
           mobile: patient.phone,
           email: patient.email,
           // address: null, // no `address` column on patients yet - see note below
-          preferredLanguage: "english", 
+          preferredLanguage: "english",
         },
         medicalFlags: {
-          allergies: medicalRecords.filter((r) => r.type === "allergy").map((r) => r.value),
-          conditions: medicalRecords.filter((r) => r.type === "condition").map((r) => r.value),
-          medications: medicalRecords.filter((r) => r.type === "medication").map((r) => r.value),
+          allergies: medicalRecords
+            .filter((r) => r.type === "allergy")
+            .map((r) => r.value),
+          conditions: medicalRecords
+            .filter((r) => r.type === "condition")
+            .map((r) => r.value),
+          medications: medicalRecords
+            .filter((r) => r.type === "medication")
+            .map((r) => r.value),
         },
       },
     };
@@ -327,6 +348,35 @@ export async function getMyProfile(): Promise<PatientProfileResult> {
       return { success: false, error: err.message };
     }
     console.error(err);
-    return { success: false, error: "Something went wrong loading your profile." };
+    return {
+      success: false,
+      error: "Something went wrong loading your profile.",
+    };
   }
+}
+
+export type LogoutResult = { success: true };
+
+export async function logoutPatient(
+  refreshToken: string | undefined,
+): Promise<LogoutResult> {
+  if (refreshToken) {
+    try {
+      const tokenHash = crypto
+        .createHmac("sha256", process.env.PATIENT_REFRESH_TOKEN_SECRET!)
+        .update(refreshToken)
+        .digest("hex");
+      await db
+        .update(patientRefreshTokens)
+        .set({ revokedAt: new Date() })
+        .where(eq(patientRefreshTokens.tokenHash, tokenHash));
+    } catch (err) {
+      console.error(
+        "Failed to revoke patient refresh token during logout:",
+        err,
+      );
+    }
+  }
+
+  return { success: true };
 }

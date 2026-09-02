@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 type Step = "email" | "code";
+const REFERRER_STORAGE_KEY = "came_from";
 
 export default function PatientLoginPage() {
   const router = useRouter();
@@ -30,9 +31,19 @@ export default function PatientLoginPage() {
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
 
   useEffect(() => {
+    try {
+      const alreadyStored = sessionStorage.getItem(REFERRER_STORAGE_KEY);
+      if (!alreadyStored && document.referrer) {
+        sessionStorage.setItem(REFERRER_STORAGE_KEY, document.referrer);
+      }
+    } catch (err: any) {
+      console.error(err);
+    }
+  }, []);
+  useEffect(() => {
     if (!organizationName) {
       setError(
-        "This link is missing the clinic information. Please use the link provided by your clinic."
+        "This link is missing the clinic information. Please use the link provided by your clinic.",
       );
     }
   }, [organizationName]);
@@ -52,7 +63,8 @@ export default function PatientLoginPage() {
     } catch (err) {
       if (axios.isAxiosError(err)) {
         setError(
-          err.response?.data?.error ?? "Something went wrong. Please try again."
+          err.response?.data?.error ??
+            "Something went wrong. Please try again.",
         );
       } else {
         setError("Something went wrong. Please try again.");
@@ -73,7 +85,7 @@ export default function PatientLoginPage() {
           email,
           organizationName,
           code,
-        }
+        },
       );
 
       if (!responseBody?.success) {
@@ -114,13 +126,17 @@ export default function PatientLoginPage() {
             <div className="mt-2 space-y-3">
               {organizationName ? (
                 <div className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white/80 px-3.5 py-1 text-xs font-semibold text-slate-600 shadow-sm backdrop-blur-md">
-                  <Building2 className="h-3.5 w-3.5 text-[#7da3b3]" strokeWidth={2.2} />
+                  <Building2
+                    className="h-3.5 w-3.5 text-[#7da3b3]"
+                    strokeWidth={2.2}
+                  />
                   <span>{organizationName}</span>
                 </div>
               ) : null}
 
               <p className="mx-auto max-w-sm text-xs leading-relaxed text-slate-500">
-                Please enter the email address on file with your clinic to securely log into your portal.
+                Please enter the email address on file with your clinic to
+                securely log into your portal.
               </p>
             </div>
           )}
@@ -130,14 +146,20 @@ export default function PatientLoginPage() {
         <div className="mt-7 rounded-[2.5rem] border border-slate-200/60 bg-white/90 p-8 shadow-[0_20px_60px_-15px_rgba(15,23,42,0.08)] backdrop-blur-xl sm:p-10">
           {error && (
             <div className="mb-6 flex items-start gap-3 rounded-2xl border border-rose-200/80 bg-rose-50/70 p-4 text-xs text-rose-700 backdrop-blur-sm animate-in fade-in slide-in-from-top-2">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" strokeWidth={2} />
+              <AlertCircle
+                className="mt-0.5 h-4 w-4 shrink-0 text-rose-500"
+                strokeWidth={2}
+              />
               <p className="font-medium leading-relaxed">{error}</p>
             </div>
           )}
 
           {infoMessage && !error && (
             <div className="mb-6 flex items-start gap-3 rounded-2xl border border-emerald-200/80 bg-emerald-50/70 p-4 text-xs text-emerald-800 backdrop-blur-sm animate-in fade-in slide-in-from-top-2">
-              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" strokeWidth={2} />
+              <CheckCircle2
+                className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600"
+                strokeWidth={2}
+              />
               <p className="font-medium leading-relaxed">{infoMessage}</p>
             </div>
           )}
@@ -146,7 +168,10 @@ export default function PatientLoginPage() {
             <form onSubmit={handleRequestCode} noValidate className="space-y-5">
               <div>
                 <label className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-700">
-                  <Mail className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                  <Mail
+                    className="h-3.5 w-3.5 text-slate-400"
+                    strokeWidth={2}
+                  />
                   Email Address
                 </label>
                 <div className="relative">
@@ -175,7 +200,10 @@ export default function PatientLoginPage() {
                 ) : (
                   <>
                     <span>Send Verification Code</span>
-                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={2.2} />
+                    <ArrowRight
+                      className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
+                      strokeWidth={2.2}
+                    />
                   </>
                 )}
               </button>
@@ -184,7 +212,10 @@ export default function PatientLoginPage() {
             <form onSubmit={handleVerifyCode} noValidate className="space-y-5">
               <div>
                 <label className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-slate-700">
-                  <KeyRound className="h-3.5 w-3.5 text-slate-400" strokeWidth={2} />
+                  <KeyRound
+                    className="h-3.5 w-3.5 text-slate-400"
+                    strokeWidth={2}
+                  />
                   Verification Code
                 </label>
                 <input
@@ -198,7 +229,9 @@ export default function PatientLoginPage() {
                   className="w-full rounded-2xl border border-slate-200 bg-slate-50/50 px-4 py-3.5 text-center text-2xl font-bold tracking-[0.4em] text-[#345263] outline-none transition-all duration-200 placeholder:tracking-normal placeholder:text-slate-300 hover:border-slate-300 focus:border-sky-400 focus:bg-white focus:ring-4 focus:ring-sky-100"
                 />
                 <p className="mt-2 text-center text-[0.75rem] text-slate-400">
-                  Sent to <span className="font-semibold text-slate-600">{email}</span>. Expires in 10 minutes.
+                  Sent to{" "}
+                  <span className="font-semibold text-slate-600">{email}</span>.
+                  Expires in 10 minutes.
                 </p>
               </div>
 
@@ -212,7 +245,10 @@ export default function PatientLoginPage() {
                 ) : (
                   <>
                     <span>Verify & Log In</span>
-                    <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5" strokeWidth={2.2} />
+                    <ArrowRight
+                      className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-0.5"
+                      strokeWidth={2.2}
+                    />
                   </>
                 )}
               </button>

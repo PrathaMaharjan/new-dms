@@ -1,7 +1,16 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import { Home, Calendar, CreditCard, FolderOpen, LogOut,UserStar } from "lucide-react";
+import {
+  Home,
+  Calendar,
+  CreditCard,
+  FolderOpen,
+  LogOut,
+  UserStar,
+} from "lucide-react";
+import { clearReturnUrl, getReturnUrl } from "@/lib/patient-navigation";
+import axios from "axios";
 
 export default function Navbar() {
   const router = useRouter();
@@ -9,7 +18,11 @@ export default function Navbar() {
 
   const navItems = [
     { label: "Home", path: "/patientPortal/dashboard", icon: Home },
-    { label: "Appointments", path: "/patientPortal/appointments", icon: Calendar },
+    {
+      label: "Appointments",
+      path: "/patientPortal/appointments",
+      icon: Calendar,
+    },
     { label: "Billing", path: "/patientPortal/billing", icon: CreditCard },
     { label: "Records", path: "/patientPortal/records", icon: FolderOpen },
     { label: "My Detail", path: "/patientPortal/myDetail", icon: UserStar },
@@ -19,8 +32,15 @@ export default function Navbar() {
     router.push(path);
   };
 
-  const handleLogout = () => {
-    router.push("/patient/login");
+  const handleLogout = async () => {
+    try {
+      await axios.post("/api/patient-auth/logout");
+    } catch {
+    } finally {
+      const returnUrl = getReturnUrl();
+      clearReturnUrl(); // clean up, so a future login on this same tab starts fresh
+      window.location.href = returnUrl;
+    }
   };
 
   return (
