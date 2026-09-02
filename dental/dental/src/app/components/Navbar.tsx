@@ -4,12 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
-
 const NAV_LINKS = [
   { label: "Home", href: "/" },
   { label: "About Us", href: "/about" },
   { label: "Services", href: "/services" },
   { label: "Dentist", href: "/dentist" },
+  {
+    label: "Patient Portal",
+    href: `${process.env.NEXT_PUBLIC_POS_API_URL}/patientPortal?org=${encodeURIComponent(localStorage.getItem("orgname") ?? "")}`,
+  },
 ];
 
 export default function Navbar() {
@@ -74,7 +77,6 @@ export default function Navbar() {
             light ? "border-white/60" : "border-slate-300",
           ].join(" ")}
         >
-       
           <div
             className={[
               "inline-flex h-12 items-center justify-center gap-2 px-6 transition-transform duration-300 group-hover:-translate-y-[150%]",

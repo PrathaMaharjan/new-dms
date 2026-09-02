@@ -15,3 +15,6 @@ export const getPublicServices = (locationId?: string) =>
 
 export const submitAppointmentBooking = (bookingPayload: any) =>
     posApi.post("/api/public/booking", bookingPayload);
+
+export const getOrganizationBySlug = (slug: string) =>
+    posApi.get(`/api/public/organizations/${slug}`);
