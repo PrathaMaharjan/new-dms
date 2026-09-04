@@ -471,12 +471,13 @@ export default function BillingPage() {
     const amountCents = Math.round(amountNumber * 100);
     setSubmittingEntry(true);
     try {
+      const orginalAmount = amountCents / 100;
       const { data: responseBody } = await axios.post(
         `/api/patent/${entryTargetPatientId}/ledger`,
         {
           locationId: activeLocId,
           type: entryForm.type,
-          amountCents,
+          amountCents: orginalAmount,
           paymentMethod:
             entryForm.type === "payment" ? entryForm.paymentMethod : undefined,
           note: entryForm.note || undefined,

@@ -6,6 +6,7 @@ import {
   pgEnum,
   index,
   text,
+  numeric,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { organizations, locations } from "./tenancy";
@@ -44,9 +45,13 @@ export const ledgerEntries = pgTable(
       onDelete: "cascade",
     }),
     status: paymentStatusEnum("status").notNull().default("due"),
-    note : text("note"),
+    note: text("note"),
     type: ledgerEntryTypeEnum("type").notNull(),
     amountCents: integer("amount_cents").notNull(),
+    // amountRupees: numeric("amount_rupees", {
+    //   precision: 10,
+    //   scale: 2,
+    // }).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => ({
@@ -75,5 +80,4 @@ export const ledgerEntriesRelations = relations(ledgerEntries, ({ one }) => ({
     fields: [ledgerEntries.appointmentId],
     references: [appointments.id],
   }),
-
 }));

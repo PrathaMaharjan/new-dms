@@ -38,7 +38,7 @@ export default function Navbar() {
     } catch {
     } finally {
       const returnUrl = getReturnUrl();
-      clearReturnUrl(); // clean up, so a future login on this same tab starts fresh
+      clearReturnUrl(); 
       window.location.href = returnUrl;
     }
   };
