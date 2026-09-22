@@ -29,7 +29,7 @@ export default function Navbar() {
 
   const navLinks = [
     ...BASE_NAV_LINKS,
-    { label: "Patient Portal", href: patientPortalHref },
+    // { label: "Patient Portal", href: patientPortalHref },
   ];
 
   useEffect(() => {
