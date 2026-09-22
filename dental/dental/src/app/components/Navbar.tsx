@@ -6,9 +6,9 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 const BASE_NAV_LINKS = [
   { label: "Home", href: "/" },
-  { label: "About Us", href: "/about" },
-  { label: "Services", href: "/services" },
-  { label: "Dentist", href: "/dentist" },
+  { label: "About Us", href: "/" },
+  { label: "Services", href: "/" },
+  { label: "Dentist", href: "/" },
 ];
 
 export default function Navbar() {
