@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Dentro — Modern Dental Care",
+  title: "Chitwan Dental Home",
   description:
     "High-quality dental care using modern technology and a patient-first approach.",
 };
@@ -28,8 +28,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased` } suppressHydrationWarning={true}> 
-       <Navbar/> {children} <Footer/>
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`} suppressHydrationWarning={true}>
+        <Navbar /> {children} <Footer />
       </body>
     </html>
   );

@@ -2,34 +2,62 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { ArrowUpRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { getPublicServices } from "@/lib/api";
 
-const SERVICES = [
+const DEFAULT_SERVICES = [
   {
     label: "Aesthetic dentistry",
+    category: "Cosmetic",
+    durationMinutes: 45,
     image: "/images/services/aesthetic-dentistry.png",
   },
   {
     label: "Orthodontics",
+    category: "Orthodontics",
+    durationMinutes: 60,
     image: "/images/services/orthodontics.png",
   },
   {
     label: "Implantology",
+    category: "Surgical",
+    durationMinutes: 90,
     image: "/images/services/implantology.png",
   },
   {
     label: "Whitening",
-    image: "/images/services/whitening.png",
+    category: "Cosmetic",
+    durationMinutes: 30,
+    image: "/images/services/aesthetic-dentistry.png",
   },
   {
     label: "Surgical dentistry",
-    image: "/images/services/surgical-dentistry.png",
+    category: "Surgical",
+    durationMinutes: 60,
+    image: "/images/services/implantology.png",
   },
 ];
 
-const LOOP_SERVICES = [...SERVICES, ...SERVICES, ...SERVICES];
-const SET_COUNT = SERVICES.length;
+function getFallbackImage(name: string, category?: string | null): string {
+  const text = `${name} ${category || ""}`.toLowerCase();
+  if (text.includes("ortho") || text.includes("brace") || text.includes("align")) {
+    return "/images/services/orthodontics.png";
+  }
+  if (text.includes("implant") || text.includes("surg") || text.includes("extract")) {
+    return "/images/services/implantology.png";
+  }
+  return "/images/services/aesthetic-dentistry.png";
+}
+
+export interface ServiceItem {
+  id?: string;
+  label: string;
+  category?: string | null;
+  durationMinutes?: number | null;
+  priceCents?: number | null;
+  image: string;
+}
 
 interface ServicesProps {
   tenantSlug?: string;
@@ -39,26 +67,64 @@ export default function Services({ tenantSlug }: ServicesProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const isCorrectingRef = useRef(false);
   const isInteractingRef = useRef(false);
-  const autoScrollSpeed = 0.6; 
+  const autoScrollSpeed = 0.6;
+
+  const [services, setServices] = useState<ServiceItem[]>(DEFAULT_SERVICES);
+
+  const activeTenantSlug =
+    tenantSlug || process.env.NEXT_PUBLIC_TENANT_SLUG || "chitwan-dental";
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadServices() {
+      try {
+        const res = await getPublicServices({ tenantSlug: activeTenantSlug });
+        const items = res?.data?.data?.treatments;
+        if (isMounted && Array.isArray(items) && items.length > 0) {
+          const mapped: ServiceItem[] = items.map((t: any) => ({
+            id: t.id,
+            label: t.name,
+            category: t.category,
+            durationMinutes: t.durationMinutes,
+            priceCents: t.priceCents,
+            image: t.imageUrl || getFallbackImage(t.name, t.category),
+          }));
+          setServices(mapped);
+        }
+      } catch (err) {
+        console.error("Failed to load treatments:", err);
+      }
+    }
+    loadServices();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeTenantSlug]);
+
+  const loopServices = useMemo(() => {
+    if (services.length === 0) return [];
+    const repeatCount = Math.max(3, Math.ceil(12 / services.length));
+    return Array.from({ length: repeatCount }, () => services).flat();
+  }, [services]);
+
+  const setCount = services.length;
 
   const getSetWidth = (el: HTMLDivElement) => {
     const card = el.querySelector<HTMLElement>("[data-card]");
     if (!card) return 0;
     const gap = parseFloat(getComputedStyle(el).columnGap || "20");
-    return SET_COUNT * (card.offsetWidth + gap);
+    return setCount * (card.offsetWidth + gap);
   };
 
   useEffect(() => {
     const el = scrollerRef.current;
-    if (!el) return;
-
+    if (!el || loopServices.length === 0) return;
 
     el.scrollLeft = getSetWidth(el);
 
     let animationFrameId: number;
 
     const loop = () => {
-      
       if (!isInteractingRef.current && !isCorrectingRef.current) {
         el.scrollLeft += autoScrollSpeed;
       }
@@ -67,8 +133,7 @@ export default function Services({ tenantSlug }: ServicesProps) {
 
     animationFrameId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animationFrameId);
-  }, []);
-
+  }, [loopServices, setCount]);
 
   const handleScroll = () => {
     const el = scrollerRef.current;
@@ -77,7 +142,6 @@ export default function Services({ tenantSlug }: ServicesProps) {
     const setWidth = getSetWidth(el);
     if (!setWidth) return;
 
-  
     if (el.scrollLeft < setWidth * 0.5) {
       isCorrectingRef.current = true;
       el.scrollLeft += setWidth;
@@ -89,7 +153,6 @@ export default function Services({ tenantSlug }: ServicesProps) {
     }
   };
 
-
   const scrollByAmount = (direction: "left" | "right") => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -97,7 +160,6 @@ export default function Services({ tenantSlug }: ServicesProps) {
     const card = el.querySelector<HTMLElement>("[data-card]");
     const gap = parseFloat(getComputedStyle(el).columnGap || "20");
     const step = card ? card.offsetWidth + gap : 300;
-
 
     isInteractingRef.current = true;
     el.scrollBy({ left: direction === "left" ? -step : step, behavior: "smooth" });
@@ -111,7 +173,6 @@ export default function Services({ tenantSlug }: ServicesProps) {
 
   return (
     <section id="services" className="relative overflow-hidden bg-white py-24 lg:py-32">
-    
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <ToothOutline className="absolute -left-16 top-10 h-64 w-64 text-[#7da3b3]/20 -rotate-12" />
         <ToothOutline className="absolute -right-20 bottom-0 h-80 w-80 text-[#7da3b3]/15 rotate-12" />
@@ -122,7 +183,6 @@ export default function Services({ tenantSlug }: ServicesProps) {
       </div>
 
       <div className="relative mx-auto max-w-[1600px] px-8 lg:px-14 xl:px-20">
-     
         <div className="mx-auto flex max-w-2xl flex-col items-center text-center">
           <p className="text-sm font-semibold uppercase tracking-[0.15em] text-sky-300">
             Services
@@ -165,47 +225,59 @@ export default function Services({ tenantSlug }: ServicesProps) {
             onScroll={handleScroll}
             className="flex gap-4 overflow-x-auto pb-2 [-ms-overflow-style:none] [scrollbar-width:none] lg:gap-5 [&::-webkit-scrollbar]:hidden"
           >
-            {LOOP_SERVICES.map(({ label, image }, i) => (
-              <div
-                key={`${label}-${i}`}
+            {loopServices.map((item, i) => (
+              <Link
+                key={`${item.id || item.label}-${i}`}
+                href={`/booking?service=${encodeURIComponent(item.label)}`}
                 data-card
-                className="group relative aspect-[4/5] w-[220px] flex-shrink-0 overflow-hidden rounded-2xl bg-[#7da3b3] sm:w-[260px] lg:w-[300px]"
+                className="group relative aspect-[4/5] w-[220px] flex-shrink-0 overflow-hidden rounded-2xl bg-[#7da3b3] sm:w-[260px] lg:w-[300px] block"
               >
                 <Image
-                  src={image}
-                  alt={label}
+                  src={item.image}
+                  alt={item.label}
                   fill
                   sizes="300px"
                   className="object-cover transition-transform duration-500 group-hover:scale-105"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/0 to-black/0" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-black/0" />
                 <div className="absolute inset-x-0 bottom-0 px-4 pb-4 pt-10">
-                  <p className="text-[0.95rem] font-medium text-white">{label}</p>
+                  {item.category && (
+                    <span className="inline-block rounded-full bg-white/20 px-2 py-0.5 text-[0.7rem] font-medium uppercase tracking-wider text-white backdrop-blur-sm mb-1.5">
+                      {item.category}
+                    </span>
+                  )}
+                  <p className="text-[1rem] font-semibold text-white group-hover:text-sky-200 transition-colors line-clamp-1">
+                    {item.label}
+                  </p>
+                  {item.durationMinutes ? (
+                    <p className="text-xs text-white/80 mt-0.5">
+                      {item.durationMinutes} mins
+                    </p>
+                  ) : null}
                 </div>
-              </div>
+              </Link>
             ))}
           </div>
         </div>
 
-    
- {/* CTA */}
-<div className="mt-14 flex justify-center">
-  <Link
-    href="/booking"
-    className="group relative h-12 overflow-hidden rounded-full border border-slate-300 inline-flex"
-  >
-    <div className="inline-flex h-12 items-center justify-center gap-2 px-6 bg-white text-slate-900 transition-transform duration-300 group-hover:-translate-y-[150%]">
-      Schedule an Appointment
-      <ArrowUpRight className="h-4 w-4" />
-    </div>
+        {/* CTA */}
+        <div className="mt-14 flex justify-center">
+          <Link
+            href="/booking"
+            className="group relative h-12 overflow-hidden rounded-full border border-slate-300 inline-flex"
+          >
+            <div className="inline-flex h-12 items-center justify-center gap-2 px-6 bg-white text-slate-900 transition-transform duration-300 group-hover:-translate-y-[150%]">
+              Schedule an Appointment
+              <ArrowUpRight className="h-4 w-4" />
+            </div>
 
-    {/* Hover state */}
-    <div className="absolute inset-0 inline-flex h-12 w-full translate-y-full items-center justify-center gap-2 bg-[#7da3b3] text-white transition-transform duration-300 group-hover:translate-y-0">
-      Schedule an Appointment
-      <ArrowUpRight className="h-4 w-4" />
-    </div>
-  </Link>
-</div>
+            {/* Hover state */}
+            <div className="absolute inset-0 inline-flex h-12 w-full translate-y-full items-center justify-center gap-2 bg-[#7da3b3] text-white transition-transform duration-300 group-hover:translate-y-0">
+              Schedule an Appointment
+              <ArrowUpRight className="h-4 w-4" />
+            </div>
+          </Link>
+        </div>
       </div>
     </section>
   );

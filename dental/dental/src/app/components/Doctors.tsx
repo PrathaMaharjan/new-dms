@@ -2,37 +2,62 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef } from "react";
-import { Mail, ArrowRight, ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { ArrowRight, ChevronLeft, ChevronRight, User } from "lucide-react";
+import { getPublicDoctors } from "@/lib/api";
 
-const DOCTORS = [
+const DEFAULT_DOCTORS = [
   {
     name: "Dr. Anisha Rai",
     role: "Lead Dentist · Aesthetic Dentistry",
-    image: "/images/services/anesthetic-dentistry.png",
+    image: "/images/services/aesthetic-dentistry.png",
     email: "anisha@chitwandental.com",
+    qualification: "BDS, MDS",
+    experience: 8,
   },
   {
     name: "Dr. Bikash Shrestha",
     role: "Orthodontist",
-    image: "/images/services/anesthetic-dentistry.png",
+    image: "/images/services/orthodontics.png",
     email: "bikash@chitwandental.com",
+    qualification: "MDS Orthodontics",
+    experience: 6,
   },
   {
     name: "Dr. Priya Gurung",
     role: "Oral & Maxillofacial Surgeon",
-    image: "/images/services/anesthetic-dentistry.png",
+    image: "/images/services/implantology.png",
     email: "priya@chitwandental.com",
+    qualification: "MD, Oral Surgery",
+    experience: 10,
   },
   {
     name: "Dr. Suman Adhikari",
     role: "General & Preventive Care",
-    image: "/images/services/anesthetic-dentistry.png",
+    image: "/images/services/aesthetic-dentistry.png",
     email: "suman@chitwandental.com",
+    qualification: "BDS",
+    experience: 5,
   },
 ];
 
-const LOOP_DOCTORS = [...DOCTORS, ...DOCTORS, ...DOCTORS];
+function formatSpecialization(spec?: string | null): string {
+  if (!spec) return "Dental Specialist";
+  return spec
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+export interface DoctorItem {
+  id?: string;
+  name: string;
+  role: string;
+  image?: string | null;
+  email?: string | null;
+  qualification?: string | null;
+  experience?: number | null;
+}
 
 interface DoctorsProps {
   tenantSlug?: string;
@@ -42,11 +67,50 @@ export default function Doctors({ tenantSlug }: DoctorsProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const isCorrectingRef = useRef(false);
 
+  const [doctors, setDoctors] = useState<DoctorItem[]>(DEFAULT_DOCTORS);
+
+  const activeTenantSlug =
+    tenantSlug || process.env.NEXT_PUBLIC_TENANT_SLUG || "chitwan-dental";
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDoctors() {
+      try {
+        const res = await getPublicDoctors({ tenantSlug: activeTenantSlug });
+        const items = res?.data?.data?.doctors;
+        if (isMounted && Array.isArray(items) && items.length > 0) {
+          const mapped: DoctorItem[] = items.map((d: any) => ({
+            id: d.id,
+            name: d.name,
+            role: formatSpecialization(d.specialization),
+            image: d.imageUrl || d.photoUrl || null,
+            qualification: d.qualification,
+            experience: d.yearsOfExperience ?? d.experience ?? null,
+            email: d.email || null,
+          }));
+          setDoctors(mapped);
+        }
+      } catch (err) {
+        console.error("Failed to load doctors:", err);
+      }
+    }
+    loadDoctors();
+    return () => {
+      isMounted = false;
+    };
+  }, [activeTenantSlug]);
+
+  const loopDoctors = useMemo(() => {
+    if (doctors.length === 0) return [];
+    const repeatCount = Math.max(3, Math.ceil(12 / doctors.length));
+    return Array.from({ length: repeatCount }, () => doctors).flat();
+  }, [doctors]);
+
   useEffect(() => {
     const el = scrollerRef.current;
-    if (!el) return;
+    if (!el || loopDoctors.length === 0) return;
     el.scrollLeft = el.scrollWidth / 3;
-  }, []);
+  }, [loopDoctors]);
 
   const handleScroll = () => {
     const el = scrollerRef.current;
@@ -128,39 +192,59 @@ export default function Doctors({ tenantSlug }: DoctorsProps) {
             onScroll={handleScroll}
             className="flex gap-6 overflow-x-auto pb-8 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            {LOOP_DOCTORS.map((doc, i) => (
+            {loopDoctors.map((doc, i) => (
               <div
-                key={`${doc.name}-${i}`}
+                key={`${doc.id || doc.name}-${i}`}
                 data-card
-                className="group w-[280px] flex-shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 transition-shadow duration-300 hover:shadow-xl sm:w-[320px] lg:w-[calc((100%-72px)/4)]"
+                className="group w-[280px] flex-shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-black/5 transition-shadow duration-300 hover:shadow-xl sm:w-[320px] lg:w-[calc((100%-72px)/4)] flex flex-col"
               >
-                {/* Image Wrap - aspect adjusted to 4/3 to reduce length/height */}
+                {/* Image Wrap */}
                 <div className="relative aspect-[4/3] overflow-hidden bg-[#eaf3f6]">
-                  <Image
-                    src={doc.image}
-                    alt={doc.name}
-                    fill
-                    sizes="(max-width: 1024px) 320px, 400px"
-                    className="object-cover transition-transform duration-500 group-hover:scale-105"
-                  />
+                  {doc.image ? (
+                    <Image
+                      src={doc.image}
+                      alt={doc.name}
+                      fill
+                      sizes="(max-width: 1024px) 320px, 400px"
+                      className="object-cover transition-transform duration-500 group-hover:scale-105"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#7da3b3]/20 via-[#eaf3f6] to-[#7da3b3]/10">
+                      <div className="flex h-20 w-20 items-center justify-center rounded-full bg-white/80 shadow-inner">
+                        <User className="h-10 w-10 text-[#7da3b3]" />
+                      </div>
+                    </div>
+                  )}
+                  {doc.qualification && (
+                    <span className="absolute top-3 right-3 rounded-full bg-white/90 backdrop-blur-md px-2.5 py-0.5 text-[0.7rem] font-semibold text-slate-700 shadow-sm">
+                      {doc.qualification}
+                    </span>
+                  )}
                 </div>
 
                 {/* Details Card */}
-                <div className="p-5">
-                  <h3 className="text-[1.02rem] font-semibold text-slate-900 line-clamp-1">
-                    {doc.name}
-                  </h3>
-                  <p className="mt-1 text-[0.82rem] font-medium text-[#7da3b3] line-clamp-1">
-                    {doc.role}
-                  </p>
+                <div className="p-5 flex flex-col flex-1 justify-between">
+                  <div>
+                    <h3 className="text-[1.02rem] font-semibold text-slate-900 line-clamp-1">
+                      {doc.name}
+                    </h3>
+                    <p className="mt-1 text-[0.82rem] font-medium text-[#7da3b3] line-clamp-1">
+                      {doc.role}
+                    </p>
+                    {typeof doc.experience === "number" && doc.experience > 0 ? (
+                      <p className="mt-1 text-[0.75rem] text-slate-500">
+                        {doc.experience} {doc.experience === 1 ? "year" : "years"} experience
+                      </p>
+                    ) : null}
+                  </div>
 
-                  <a
-                    href={`mailto:${doc.email}`}
-                    className="mt-4 flex items-center gap-2 border-t border-slate-100 pt-4 text-[0.82rem] font-medium text-[#7da3b3] transition-colors hover:text-[#5f8b9c]"
+                  <Link
+                    href={`/booking?dentist=${encodeURIComponent(doc.name)}`}
+                    className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-[0.82rem] font-semibold text-[#7da3b3] transition-colors hover:text-[#5f8b9c]"
                   >
-                    <Mail className="h-3.5 w-3.5" />
-                    <span className="line-clamp-1">{doc.email}</span>
-                  </a>
+                    <span>Book Consultation</span>
+                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                  </Link>
                 </div>
               </div>
             ))}

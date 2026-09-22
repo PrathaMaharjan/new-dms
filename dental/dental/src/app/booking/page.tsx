@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Calendar,
   Clock,
@@ -8,113 +9,306 @@ import {
   Phone,
   User,
   Stethoscope,
+  MapPin,
   CheckCircle2,
   AlertCircle,
   Loader2,
+  Layers,
 } from "lucide-react";
-import { submitAppointmentBooking, getPublicServices, getPublicDoctors } from "@/lib/api";
-import Navbar from "../components/Navbar";
-
-const DEFAULT_SERVICES = [
-  "Routine Checkup & Cleaning",
-  "Teeth Whitening",
-  "Root Canal Treatment",
-  "Dental Implants",
-  "Braces & Aligners",
-  "Emergency Care",
-];
+import {
+  getPublicLocations,
+  getPublicServices,
+  getPublicDoctors,
+  submitAppointmentBooking,
+} from "@/lib/api";
 
 const NO_PREFERENCE = "No Preference";
+const ALL_CATEGORIES = "All Categories";
 
-const DEFAULT_DENTISTS = [
-  "Pratha Maharjan",
-  "Sophan Shrestha",
-  "Suprasidhhi Pradhan",
-  "Pragun Maskey",
-];
+interface OutletOption {
+  id: string;
+  name: string;
+  address?: string | null;
+}
+
+interface RawTreatment {
+  id: string;
+  name: string;
+  category?: string | null;
+  durationMinutes?: number | null;
+  priceCents?: number | null;
+  doctorIds?: string[];
+  doctors?: { id: string; name: string; specialization?: string | null }[];
+}
+
+interface RawDoctor {
+  id: string;
+  name: string;
+  specialization?: string | null;
+  treatmentIds?: string[];
+  treatments?: { id: string; name: string; category?: string }[];
+}
 
 const inputClass =
   "w-full rounded-xl border border-slate-900/10 bg-white px-3.5 py-2.5 text-[0.9rem] text-slate-900 outline-none transition-colors placeholder:text-slate-400 focus:border-sky-400";
 
-const TENANT_SLUG = process.env.NEXT_PUBLIC_TENANT_SLUG;
+function BookingForm() {
+  const searchParams = useSearchParams();
+  const paramDentist = searchParams.get("dentist") || searchParams.get("provider") || "";
+  const paramService = searchParams.get("service") || "";
 
-export default function BookingPage() {
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadingOutletData, setLoadingOutletData] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [services, setServices] = useState<string[]>([]);
-  const [dentists, setDentists] = useState<string[]>([]);
+  const [outlets, setOutlets] = useState<OutletOption[]>([]);
+  const [rawTreatments, setRawTreatments] = useState<RawTreatment[]>([]);
+  const [rawDoctors, setRawDoctors] = useState<RawDoctor[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string>(ALL_CATEGORIES);
+
+  const tenantSlug =
+    process.env.NEXT_PUBLIC_TENANT_SLUG?.trim() || "sunrise-dental-group";
 
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
-    service: "",
-    dentist: "",
+    locationId: "",
+    service: paramService,
+    dentist: paramDentist || NO_PREFERENCE,
     date: "",
     time: "",
     notes: "",
   });
 
+  // 1. Fetch Outlets for Clinic on Mount
   useEffect(() => {
     let isMounted = true;
 
-    async function loadData() {
+    async function loadOutlets() {
       try {
-        const posUrl = (process.env.NEXT_PUBLIC_POS_API_URL || "http://localhost:3000").replace(/\/$/, "");
-        const tenantSlug = TENANT_SLUG?.trim();
-        const query = tenantSlug ? `?tenantSlug=${encodeURIComponent(tenantSlug)}` : "";
+        const res = await getPublicLocations(tenantSlug);
+        const locList: OutletOption[] = res?.data?.data?.locations || [];
 
-        const [servicesRes, doctorsRes] = await Promise.allSettled([
-          fetch(`${posUrl}/api/public/treatments${query}`, { cache: "no-store" }).then((r) => r.json()),
-          fetch(`${posUrl}/api/public/doctors${query}`, { cache: "no-store" }).then((r) => r.json()),
-        ]);
-
-        let loadedServices = DEFAULT_SERVICES;
-        if (servicesRes.status === "fulfilled" && servicesRes.value?.success) {
-          const rawTreatments = servicesRes.value.data?.treatments || [];
-          if (Array.isArray(rawTreatments) && rawTreatments.length > 0) {
-            const names = rawTreatments.map((t: any) => t.name || t.title || t).filter(Boolean);
-            if (names.length > 0) {
-              loadedServices = names;
-            }
-          }
-        }
-
-        let loadedDentists = [NO_PREFERENCE, ...DEFAULT_DENTISTS];
-        if (doctorsRes.status === "fulfilled" && doctorsRes.value?.success) {
-          const rawDoctors = doctorsRes.value.data?.doctors || [];
-          if (Array.isArray(rawDoctors) && rawDoctors.length > 0) {
-            const names = rawDoctors.map((d: any) => d.name || d.fullName || d).filter(Boolean);
-            if (names.length > 0) {
-              loadedDentists = [NO_PREFERENCE, ...names];
-            }
-          }
-        }
-
-        if (isMounted) {
-          setServices(loadedServices);
-          setDentists(loadedDentists);
+        if (isMounted && locList.length > 0) {
+          setOutlets(locList);
           setForm((prev) => ({
             ...prev,
-            service: prev.service || loadedServices[0] || "",
-            dentist: prev.dentist || loadedDentists[0] || "",
+            locationId: prev.locationId || locList[0].id,
           }));
         }
-      } catch (e) {
-        if (isMounted) {
-          setServices(DEFAULT_SERVICES);
-          setDentists([NO_PREFERENCE, ...DEFAULT_DENTISTS]);
-        }
+      } catch (err) {
+        console.error("Failed to load clinic outlets:", err);
       }
     }
 
-    loadData();
+    loadOutlets();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [tenantSlug]);
+
+  // 2. Fetch Services & Doctors for the selected Outlet
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadOutletServicesAndDoctors() {
+      if (!form.locationId) return;
+
+      try {
+        setLoadingOutletData(true);
+
+        const [servicesRes, doctorsRes] = await Promise.allSettled([
+          getPublicServices({ locationId: form.locationId, tenantSlug }),
+          getPublicDoctors({ locationId: form.locationId, tenantSlug }),
+        ]);
+
+        let loadedTreatments: RawTreatment[] = [];
+        if (servicesRes.status === "fulfilled" && servicesRes.value?.data?.success) {
+          const raw = servicesRes.value.data.data?.treatments || [];
+          if (Array.isArray(raw)) {
+            loadedTreatments = raw.map((t: any) => ({
+              id: t.id || "",
+              name: t.name || t.title || String(t),
+              category: t.category || "General",
+              durationMinutes: t.durationMinutes,
+              priceCents: t.priceCents,
+              doctorIds: t.doctorIds || [],
+              doctors: t.doctors || [],
+            }));
+          }
+        }
+
+        let loadedDoctors: RawDoctor[] = [];
+        if (doctorsRes.status === "fulfilled" && doctorsRes.value?.data?.success) {
+          const raw =
+            doctorsRes.value.data.data?.doctors ||
+            doctorsRes.value.data?.doctors ||
+            [];
+          if (Array.isArray(raw)) {
+            loadedDoctors = raw
+              .map((d: any) => ({
+                id: d.id || "",
+                name:
+                  typeof d === "string"
+                    ? d
+                    : d.name || d.fullName || d.title || "",
+                specialization: d.specialization,
+                treatmentIds: d.treatmentIds || [],
+                treatments: d.treatments || [],
+              }))
+              .filter((d) => Boolean(d.name));
+          }
+        }
+
+        // Fallback load all org doctors if none tied specifically
+        if (loadedDoctors.length === 0) {
+          try {
+            const allDocRes = await getPublicDoctors({ tenantSlug });
+            const allRaw =
+              allDocRes?.data?.data?.doctors || allDocRes?.data?.doctors || [];
+            if (Array.isArray(allRaw)) {
+              loadedDoctors = allRaw
+                .map((d: any) => ({
+                  id: d.id || "",
+                  name:
+                    typeof d === "string"
+                      ? d
+                      : d.name || d.fullName || d.title || "",
+                  specialization: d.specialization,
+                  treatmentIds: d.treatmentIds || [],
+                  treatments: d.treatments || [],
+                }))
+                .filter((d) => Boolean(d.name));
+            }
+          } catch (e) {
+            console.error("Fallback load doctors error:", e);
+          }
+        }
+
+        if (isMounted) {
+          setRawTreatments(loadedTreatments);
+          setRawDoctors(loadedDoctors);
+
+          if (paramService) {
+            const matched = loadedTreatments.find(
+              (t) => t.name.toLowerCase() === paramService.toLowerCase()
+            );
+            if (matched && matched.category) {
+              setSelectedCategory(matched.category);
+            }
+          }
+
+          setForm((prev) => {
+            const names = loadedTreatments.map((t) => t.name);
+            let selectedService = prev.service;
+            if (!names.includes(selectedService)) {
+              const matchedSvc = names.find(
+                (s) =>
+                  paramService &&
+                  s.toLowerCase().includes(paramService.toLowerCase())
+              );
+              selectedService = matchedSvc || names[0] || "";
+            }
+
+            return {
+              ...prev,
+              service: selectedService,
+            };
+          });
+        }
+      } catch (err) {
+        console.error("Failed to load services/doctors for outlet:", err);
+        if (isMounted) {
+          setRawTreatments([]);
+          setRawDoctors([]);
+        }
+      } finally {
+        if (isMounted) setLoadingOutletData(false);
+      }
+    }
+
+    loadOutletServicesAndDoctors();
+    return () => {
+      isMounted = false;
+    };
+  }, [form.locationId, tenantSlug, paramService]);
+
+  // Derive unique categories
+  const categories = useMemo(() => {
+    const catSet = new Set<string>();
+    rawTreatments.forEach((t) => {
+      if (t.category && t.category.trim()) {
+        catSet.add(t.category.trim());
+      }
+    });
+    return [ALL_CATEGORIES, ...Array.from(catSet)];
+  }, [rawTreatments]);
+
+  // Filter services by selected category
+  const filteredServices = useMemo(() => {
+    if (selectedCategory === ALL_CATEGORIES) {
+      return rawTreatments;
+    }
+    return rawTreatments.filter(
+      (t) => t.category?.toLowerCase() === selectedCategory.toLowerCase()
+    );
+  }, [rawTreatments, selectedCategory]);
+
+  function handleCategoryChange(newCategory: string) {
+    setSelectedCategory(newCategory);
+    const availableUnderCategory =
+      newCategory === ALL_CATEGORIES
+        ? rawTreatments
+        : rawTreatments.filter(
+            (t) => t.category?.toLowerCase() === newCategory.toLowerCase()
+          );
+
+    const isCurrentServiceValid = availableUnderCategory.some(
+      (t) => t.name === form.service
+    );
+
+    if (!isCurrentServiceValid && availableUnderCategory.length > 0) {
+      setForm((prev) => ({
+        ...prev,
+        service: availableUnderCategory[0].name,
+      }));
+    }
+  }
+
+  // Filter doctors who can perform the currently selected service
+  const availableDentists = useMemo(() => {
+    if (!form.service || rawDoctors.length === 0) {
+      return [NO_PREFERENCE, ...rawDoctors.map((d) => d.name)];
+    }
+
+    const currentTreatment = rawTreatments.find((t) => t.name === form.service);
+
+    const qualifiedDoctors = rawDoctors.filter((doc) => {
+      const byTreatmentId =
+        currentTreatment && doc.treatmentIds?.includes(currentTreatment.id);
+      const byTreatmentName = doc.treatments?.some(
+        (t) => t.name.toLowerCase() === form.service.toLowerCase()
+      );
+      const byTreatmentDocIds =
+        currentTreatment && currentTreatment.doctorIds?.includes(doc.id);
+
+      return byTreatmentId || byTreatmentName || byTreatmentDocIds;
+    });
+
+    if (qualifiedDoctors.length === 0) {
+      return [NO_PREFERENCE, ...rawDoctors.map((d) => d.name)];
+    }
+
+    return [NO_PREFERENCE, ...qualifiedDoctors.map((d) => d.name)];
+  }, [form.service, rawTreatments, rawDoctors]);
+
+  useEffect(() => {
+    if (form.dentist !== NO_PREFERENCE && !availableDentists.includes(form.dentist)) {
+      setForm((prev) => ({ ...prev, dentist: NO_PREFERENCE }));
+    }
+  }, [availableDentists, form.dentist]);
 
   function update<K extends keyof typeof form>(key: K, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -126,23 +320,24 @@ export default function BookingPage() {
     setError(null);
 
     try {
-      const selectedDentist = form.dentist === NO_PREFERENCE || form.dentist === "None" ? undefined : form.dentist;
-
-      if (!TENANT_SLUG?.trim()) {
-        setError("Tenant is not configured. Please set NEXT_PUBLIC_TENANT_SLUG.");
-        return;
-      }
+      const selectedDentist =
+        form.dentist === NO_PREFERENCE || form.dentist === "None"
+          ? undefined
+          : form.dentist;
 
       const res = await submitAppointmentBooking({
-        fullName: form.name,
-        phone: form.phone,
-        email: form.email || undefined,
+        fullName: form.name.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim() || undefined,
         preferredDate: form.date,
         preferredTime: form.time,
-        serviceName: form.service,
+        serviceName: form.service || undefined,
         dentistName: selectedDentist,
-        tenantSlug: TENANT_SLUG.trim(),
-        notes: form.notes ? `[Dentist: ${selectedDentist || "No Preference"}] ${form.notes}` : `[Dentist: ${selectedDentist || "No Preference"}]`,
+        tenantSlug,
+        locationId: form.locationId || undefined,
+        notes: form.notes
+          ? `[Dentist: ${selectedDentist || "No Preference"}] ${form.notes}`
+          : `[Dentist: ${selectedDentist || "No Preference"}]`,
         source: "online_booking",
       });
 
@@ -161,10 +356,10 @@ export default function BookingPage() {
     }
   }
 
-  return (
-   
-    <section className="relative min-h-screen overflow-hidden bg-gradient-to-b from-sky-50 via-white to-white">
+  const selectedOutlet = outlets.find((o) => o.id === form.locationId);
 
+  return (
+    <section className="relative min-h-screen overflow-hidden bg-gradient-to-b from-sky-50 via-white to-white">
       <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
         <ToothOutline className="absolute -left-16 top-24 h-64 w-64 text-sky-200/60 -rotate-12" />
         <ToothOutline className="absolute -right-20 top-[28rem] h-80 w-80 text-sky-200/50 rotate-12" />
@@ -175,20 +370,20 @@ export default function BookingPage() {
       </div>
 
       <div className="relative mx-auto max-w-3xl px-6 pb-24 pt-32 lg:px-8 lg:pt-40">
-    <div className="text-center">
-  <p className="text-sm font-medium uppercase tracking-[0.25em] text-sky-300">
-    Book an Appointment
-  </p>
+        <div className="text-center">
+          <p className="text-sm font-medium uppercase tracking-[0.25em] text-sky-300">
+            Book an Appointment
+          </p>
 
-  <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
-    Let's get your smile scheduled
-  </h1>
+          <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
+            Let's get your smile scheduled
+          </h1>
 
-  <p className="mx-auto mt-4 max-w-lg text-[1rem] leading-relaxed text-slate-600">
-    Pick a service, tell us a bit about yourself, and we&apos;ll
-    confirm your appointment shortly.
-  </p>
-</div>
+          <p className="mx-auto mt-4 max-w-lg text-[1rem] leading-relaxed text-slate-600">
+            Select your preferred outlet, service, and dentist, and we&apos;ll
+            confirm your appointment shortly.
+          </p>
+        </div>
 
         <div className="mt-12">
           {submitted ? (
@@ -203,7 +398,8 @@ export default function BookingPage() {
                 Thanks, {form.name.split(" ")[0] || "there"}. We&apos;ll reach
                 out at {form.phone || form.email} to confirm your{" "}
                 {form.date ? `${form.date} ` : ""}appointment for{" "}
-                {form.service}.
+                <span className="font-semibold text-slate-900">{form.service}</span>
+                {selectedOutlet ? ` at our ${selectedOutlet.name} branch` : ""}.
               </p>
 
               <div className="mt-6 flex items-start gap-3 rounded-2xl border border-sky-200/80 bg-sky-50/70 p-4 text-left text-xs text-sky-900 max-w-md shadow-sm">
@@ -229,9 +425,31 @@ export default function BookingPage() {
               className="rounded-3xl border border-slate-900/5 bg-white/90 p-8 shadow-[0_20px_60px_-15px_rgba(15,23,42,0.15)] backdrop-blur-sm sm:p-10"
             >
               <div className="grid gap-6 sm:grid-cols-2">
+                {/* Outlet Select */}
+                {outlets.length > 0 && (
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                      <MapPin className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
+                      Select Clinic Outlet
+                    </span>
+                    <select
+                      required
+                      value={form.locationId}
+                      onChange={(e) => update("locationId", e.target.value)}
+                      className={inputClass}
+                    >
+                      {outlets.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name} {o.address ? `(${o.address})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <User className="h-3.5 w-3.5" strokeWidth={2} />
+                    <User className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
                     Full name
                   </span>
                   <input
@@ -246,7 +464,7 @@ export default function BookingPage() {
 
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <Phone className="h-3.5 w-3.5" strokeWidth={2} />
+                    <Phone className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
                     Phone number
                   </span>
                   <input
@@ -261,7 +479,7 @@ export default function BookingPage() {
 
                 <label className="block sm:col-span-2">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <Mail className="h-3.5 w-3.5" strokeWidth={2} />
+                    <Mail className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
                     Email
                   </span>
                   <input
@@ -274,41 +492,88 @@ export default function BookingPage() {
                   />
                 </label>
 
-                <label className="block">
+                {/* Category Filter */}
+                {categories.length > 1 && (
+                  <label className="block">
+                    <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                      <Layers className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
+                      Category
+                    </span>
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => handleCategoryChange(e.target.value)}
+                      disabled={loadingOutletData}
+                      className={inputClass}
+                    >
+                      {categories.map((cat) => (
+                        <option key={`cat-${cat}`} value={cat}>
+                          {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {/* Service Select */}
+                <label className={categories.length > 1 ? "block" : "block sm:col-span-2"}>
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <Stethoscope className="h-3.5 w-3.5" strokeWidth={2} />
+                    <Stethoscope className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
                     Service
                   </span>
                   <select
                     value={form.service}
                     onChange={(e) => update("service", e.target.value)}
+                    disabled={loadingOutletData}
                     className={inputClass}
                   >
-                    {services.map((s, idx) => (
-                      <option key={`service-${s}-${idx}`} value={s}>{s}</option>
-                    ))}
+                    {loadingOutletData ? (
+                      <option value="">Loading services...</option>
+                    ) : filteredServices.length === 0 ? (
+                      <option value="">No services available</option>
+                    ) : (
+                      filteredServices.map((s) => (
+                        <option key={`service-${s.id || s.name}`} value={s.name}>
+                          {s.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </label>
 
-                <label className="block">
-                  <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <User className="h-3.5 w-3.5" strokeWidth={2} />
-                    Preferred dentist
-                  </span>
+                {/* Preferred Dentist */}
+                <label className="block sm:col-span-2">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
+                      <User className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
+                      Preferred dentist
+                    </span>
+                    {availableDentists.length > 1 && (
+                      <span className="text-[0.7rem] text-sky-600 font-medium">
+                        {availableDentists.length - 1} available
+                      </span>
+                    )}
+                  </div>
                   <select
                     value={form.dentist}
                     onChange={(e) => update("dentist", e.target.value)}
+                    disabled={loadingOutletData}
                     className={inputClass}
                   >
-                    {dentists.map((d, idx) => (
-                      <option key={`dentist-${d}-${idx}`} value={d}>{d}</option>
-                    ))}
+                    {loadingOutletData ? (
+                      <option value="">Loading dentists...</option>
+                    ) : (
+                      availableDentists.map((d, idx) => (
+                        <option key={`dentist-${d}-${idx}`} value={d}>
+                          {d}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </label>
 
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <Calendar className="h-3.5 w-3.5" strokeWidth={2} />
+                    <Calendar className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
                     Preferred date
                   </span>
                   <input
@@ -322,7 +587,7 @@ export default function BookingPage() {
 
                 <label className="block">
                   <span className="mb-1.5 flex items-center gap-1.5 text-[0.8rem] font-medium text-slate-600">
-                    <Clock className="h-3.5 w-3.5" strokeWidth={2} />
+                    <Clock className="h-3.5 w-3.5 text-sky-600" strokeWidth={2} />
                     Preferred time
                   </span>
                   <input
@@ -347,18 +612,18 @@ export default function BookingPage() {
                   />
                 </label>
 
-              {error && (
-                <div className="sm:col-span-2 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-xs text-rose-700">
-                  <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
-                  <span>{error}</span>
-                </div>
-              )}
+                {error && (
+                  <div className="sm:col-span-2 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3.5 text-xs text-rose-700">
+                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                    <span>{error}</span>
+                  </div>
+                )}
               </div>
 
               <button
                 type="submit"
-                disabled={loading}
-                className="group relative mt-8 h-12 w-full overflow-hidden rounded-full border border-[#a5c5d1] sm:w-auto disabled:opacity-60"
+                disabled={loading || loadingOutletData}
+                className="group relative mt-8 h-12 w-full overflow-hidden rounded-full border border-[#a5c5d1] sm:w-auto disabled:opacity-60 cursor-pointer"
               >
                 <div className="inline-flex h-12 w-full items-center justify-center bg-[#7da3b3] px-10 text-[0.95rem] font-medium text-white transition-transform duration-300 group-hover:-translate-y-full">
                   {loading ? (
@@ -383,7 +648,19 @@ export default function BookingPage() {
   );
 }
 
-
+export default function BookingPage() {
+  return (
+    <Suspense
+      fallback={
+        <section className="min-h-screen bg-white flex items-center justify-center">
+          <div className="text-slate-400 text-sm">Loading booking form...</div>
+        </section>
+      }
+    >
+      <BookingForm />
+    </Suspense>
+  );
+}
 
 function ToothOutline({ className }: { className?: string }) {
   return (

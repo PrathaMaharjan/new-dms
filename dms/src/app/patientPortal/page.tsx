@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import axios from "axios";
 import {
@@ -17,7 +17,7 @@ import {
 type Step = "email" | "code";
 const REFERRER_STORAGE_KEY = "came_from";
 
-export default function PatientLoginPage() {
+function PatientLoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -270,5 +270,19 @@ export default function PatientLoginPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+export default function PatientLoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[#f7fafb]">
+          <Loader2 className="h-8 w-8 animate-spin text-[#345263]" />
+        </div>
+      }
+    >
+      <PatientLoginContent />
+    </Suspense>
   );
 }

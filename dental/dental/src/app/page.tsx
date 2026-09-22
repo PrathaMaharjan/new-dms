@@ -44,7 +44,7 @@ export default function Home() {
     <>
       <main className="relative overflow-hidden">
         <Hero />
-        <Services />
+        <Services tenantSlug={ORG_SLUG} />
 
         <BeforeAfterSlider
           beforeImage="/images/before-after/before.png"
@@ -53,7 +53,7 @@ export default function Home() {
           afterLabel="After"
         />
 
-        <Doctors />
+        <Doctors tenantSlug={ORG_SLUG} />
         <BrushingHighlight />
       </main>
     </>

@@ -4,21 +4,33 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
-const NAV_LINKS = [
+const BASE_NAV_LINKS = [
   { label: "Home", href: "/" },
   { label: "About Us", href: "/about" },
   { label: "Services", href: "/services" },
   { label: "Dentist", href: "/dentist" },
-  {
-    label: "Patient Portal",
-    href: `${process.env.NEXT_PUBLIC_POS_API_URL}/patientPortal?org=${encodeURIComponent(localStorage.getItem("orgname") ?? "")}`,
-  },
 ];
 
 export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [orgName, setOrgName] = useState("");
   const pathname = usePathname();
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("orgname") || "";
+      setOrgName(stored);
+    }
+  }, []);
+
+  const posUrl = (process.env.NEXT_PUBLIC_POS_API_URL || "http://localhost:3000").replace(/\/$/, "");
+  const patientPortalHref = `${posUrl}/patientPortal?org=${encodeURIComponent(orgName)}`;
+
+  const navLinks = [
+    ...BASE_NAV_LINKS,
+    { label: "Patient Portal", href: patientPortalHref },
+  ];
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
@@ -53,7 +65,7 @@ export default function Navbar() {
 
         {/* Desktop Navigation */}
         <ul className="hidden items-center gap-9 md:flex">
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <li key={link.href}>
               <Link
                 href={link.href}
@@ -126,7 +138,7 @@ export default function Navbar() {
         ].join(" ")}
       >
         <ul className="flex flex-col gap-1 border-t border-slate-900/5 bg-white/90 px-6 py-4 backdrop-blur-md">
-          {NAV_LINKS.map((link) => (
+          {navLinks.map((link) => (
             <li key={link.href}>
               <Link
                 href={link.href}
